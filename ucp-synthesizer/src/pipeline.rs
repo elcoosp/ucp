@@ -6,36 +6,9 @@ use ucp_core::Result;
 
 use crate::extract::rust_ast::{self, RawComponentExtraction};
 use crate::extract::tsx_ast::{self, RawTsxExtraction};
-use crate::llm::{build_enrichment_prompt, extract_source_code, infer_behavior};
+use crate::llm::{build_enrichment_prompt, infer_behavior};
+use crate::security::is_path_safe_to_parse;
 use crate::unify::map_raw_type_to_cam;
-
-#[derive(Debug, Clone)]
-pub struct FileExtraction {
-    pub file_path: String,
-    pub components: Vec<ExtractedComponent>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SourceLanguage {
-    Rust,
-    Tsx,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExtractedComponent {
-    pub name: String,
-    pub props: Vec<ExtractedProp>,
-    pub source_lang: SourceLanguage,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExtractedProp {
-    pub name: String,
-    pub raw_type: String,
-    pub has_default: bool,
-    pub is_optional: bool,
-}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SynthesisOutput {
@@ -78,43 +51,51 @@ pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions)
     let mut files_scanned = 0usize;
     let mut files_parsed = 0usize;
     let mut all_components: Vec<CanonicalAbstractComponent> = Vec::new();
+    let mut source_map: HashMap<String, String> = HashMap::new();
 
     let mut rust_extractions: BTreeMap<String, Vec<RawComponentExtraction>> = BTreeMap::new();
     let mut tsx_extractions: BTreeMap<String, Vec<RawTsxExtraction>> = BTreeMap::new();
 
     walk_source_dir(source_dir, |path| {
-        files_scanned += 1;
+        let path_str = path.to_string_lossy().to_string();
+        let ext = path.extension().and_then(|e| e.to_str());
 
-        match path.extension().and_then(|e| e.to_str()) {
+        // Only process supported extensions
+        if !matches!(ext, Some("rs") | Some("tsx") | Some("ts")) {
+            return Ok(());
+        }
+
+        // Security: skip sensitive or out-of-scope paths
+        if !is_path_safe_to_parse(&path_str) {
+            return Ok(());
+        }
+
+        files_scanned += 1;
+        let content = std::fs::read_to_string(path)?;
+        source_map.insert(path_str.clone(), content.clone());
+
+        match ext {
             Some("rs") => {
-                let content = std::fs::read_to_string(path)?;
                 match rust_ast::extract_rust_components(&content) {
                     Ok(components) if !components.is_empty() => {
-                        let path_str = path.to_string_lossy().to_string();
                         rust_extractions.insert(path_str, components);
                         files_parsed += 1;
                     }
                     Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("  ⚠ Skipping {}: {}", path.display(), e);
-                    }
+                    Err(e) => eprintln!("  ⚠ Skipping {}: {}", path.display(), e),
                 }
             }
             Some("tsx") | Some("ts") => {
-                let content = std::fs::read_to_string(path)?;
                 match tsx_ast::extract_tsx_components(&content) {
                     Ok(components) if !components.is_empty() => {
-                        let path_str = path.to_string_lossy().to_string();
                         tsx_extractions.insert(path_str, components);
                         files_parsed += 1;
                     }
                     Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("  ⚠ Skipping {}: {}", path.display(), e);
-                    }
+                    Err(e) => eprintln!("  ⚠ Skipping {}: {}", path.display(), e),
                 }
             }
-            _ => {}
+            _ => unreachable!(),
         }
         Ok(())
     })?;
@@ -137,7 +118,12 @@ pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions)
     let mut llm_enriched = false;
     if let Some(ref _url) = opts.ollama_url {
         if !opts.dry_run {
-            llm_enriched = enrich_components_with_llm(all_components.as_mut(), &opts.llm_model).await?;
+            llm_enriched = enrich_components_with_llm(
+                all_components.as_mut(),
+                &source_map,
+                &opts.llm_model,
+            )
+            .await?;
             if llm_enriched {
                 println!("   🧠 LLM enrichment applied to {} components", all_components.len());
             } else {
@@ -170,8 +156,11 @@ pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions)
     })
 }
 
+/// Enrich components via LLM, using a pre-populated source map to avoid
+/// re-reading files from disk.
 async fn enrich_components_with_llm(
     components: &mut [CanonicalAbstractComponent],
+    source_map: &HashMap<String, String>,
     model: &str,
 ) -> Result<bool> {
     let client = reqwest::Client::builder()
@@ -181,7 +170,12 @@ async fn enrich_components_with_llm(
     let mut any_success = false;
 
     for comp in components.iter_mut() {
-        let source_code_vec = extract_source_code(std::slice::from_ref(&*comp));
+        // Collect source code from the pre-populated source map
+        let source_code_vec: Vec<String> = comp
+            .source_repos
+            .iter()
+            .filter_map(|src| source_map.get(&src.file_path).cloned())
+            .collect();
 
         if source_code_vec.is_empty() {
             continue;
@@ -189,23 +183,94 @@ async fn enrich_components_with_llm(
 
         let source_code = source_code_vec.join("\n\n");
         let comp_display_name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
-        let prompt = build_enrichment_prompt(comp_display_name);
+        let prompt = build_enrichment_prompt(comp_display_name, &source_code);
 
         match infer_behavior(&client, &source_code, &prompt, model).await {
             Ok(llm_json) => {
+                // Enrich semantic fingerprint from description
                 if let Some(desc) = llm_json.get("description").and_then(|v| v.as_str()) {
                     comp.semantic_fingerprint.purpose_hash =
                         compute_purpose_hash_with_llm(&comp.semantic_fingerprint, desc);
                     any_success = true;
                 }
+
+                // Parse SMDL state machine if returned by LLM
+                if let Some(smdl_str) = llm_json.get("smdl").and_then(|v| v.as_str()) {
+                    if !smdl_str.is_empty() {
+                        match ucp_core::smdl::parse_smdl(smdl_str) {
+                            Ok(smdl_json) => {
+                                if let Some(machine) = smdl_json_to_state_machine(&smdl_json) {
+                                    comp.extracted_state_machine = Some(machine);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "  ⚠ SMDL parse failed for {}: {}",
+                                    comp_display_name, e
+                                );
+                            }
+                        }
+                    }
+                }
             }
             Err(e) => {
-                eprintln!("  ⚠ LLM enrichment failed for {}: {}", comp_display_name, e);
+                eprintln!(
+                    "  ⚠ LLM enrichment failed for {}: {}",
+                    comp_display_name, e
+                );
             }
         }
     }
 
     Ok(any_success)
+}
+
+/// Convert the serde_json::Value returned by `ucp_core::smdl::parse_smdl`
+/// into a proper `StateMachine` CAM struct.
+fn smdl_json_to_state_machine(value: &serde_json::Value) -> Option<StateMachine> {
+    let id = value.get("id")?.as_str()?.to_string();
+    let initial = value.get("initial")?.as_str()?.to_string();
+
+    let mut states = BTreeMap::new();
+    if let Some(states_obj) = value.get("states").and_then(|v| v.as_object()) {
+        for (state_name, state_value) in states_obj {
+            let mut transitions = BTreeMap::new();
+            if let Some(on_map) = state_value.get("on").and_then(|v| v.as_object()) {
+                for (event_name, trans_value) in on_map {
+                    let target = trans_value.get("target")?.as_str()?.to_string();
+                    let side_effects = trans_value
+                        .get("sideEffects")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    transitions.insert(
+                        event_name.clone(),
+                        Transition { target, side_effects },
+                    );
+                }
+            }
+            states.insert(
+                state_name.clone(),
+                StateNode {
+                    on: if transitions.is_empty() {
+                        None
+                    } else {
+                        Some(transitions)
+                    },
+                },
+            );
+        }
+    }
+
+    Some(StateMachine {
+        id,
+        initial,
+        states,
+    })
 }
 
 fn compute_purpose_hash_with_llm(
@@ -480,4 +545,68 @@ where
     }
 
     visit(root, &mut callback, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smdl_json_to_state_machine_converts_correctly() {
+        let json = serde_json::json!({
+            "id": "test-dialog",
+            "initial": "Closed",
+            "states": {
+                "Closed": {
+                    "on": {
+                        "OPEN": {
+                            "target": "Open",
+                            "sideEffects": ["focus: move_to"]
+                        }
+                    }
+                },
+                "Open": {
+                    "on": {
+                        "CLOSE": {
+                            "target": "Closed",
+                            "sideEffects": []
+                        }
+                    }
+                }
+            }
+        });
+
+        let machine = smdl_json_to_state_machine(&json).unwrap();
+        assert_eq!(machine.id, "test-dialog");
+        assert_eq!(machine.initial, "Closed");
+        assert_eq!(machine.states.len(), 2);
+
+        let closed = &machine.states["Closed"];
+        assert!(closed.on.is_some());
+        let on = closed.on.as_ref().unwrap();
+        assert_eq!(on["OPEN"].target, "Open");
+        assert_eq!(on["OPEN"].side_effects, vec!["focus: move_to"]);
+
+        let open = &machine.states["Open"];
+        assert!(open.on.is_some());
+        assert_eq!(open.on.as_ref().unwrap()["CLOSE"].target, "Closed");
+        assert!(open.on.as_ref().unwrap()["CLOSE"].side_effects.is_empty());
+    }
+
+    #[test]
+    fn smdl_json_to_state_machine_returns_none_for_missing_fields() {
+        assert!(smdl_json_to_state_machine(&serde_json::json!({"id": "x"})).is_none());
+        assert!(smdl_json_to_state_machine(&serde_json::json!({"initial": "A"})).is_none());
+    }
+
+    #[test]
+    fn smdl_json_to_state_machine_handles_empty_states() {
+        let json = serde_json::json!({
+            "id": "empty",
+            "initial": "Idle",
+            "states": { "Idle": {} }
+        });
+        let machine = smdl_json_to_state_machine(&json).unwrap();
+        assert!(machine.states["Idle"].on.is_none());
+    }
 }

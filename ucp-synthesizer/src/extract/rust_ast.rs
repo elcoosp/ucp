@@ -1,3 +1,4 @@
+use quote::ToTokens;
 use syn::{parse_file, visit::Visit, ItemFn, FnArg, Pat, Meta};
 use ucp_core::Result;
 
@@ -32,7 +33,10 @@ impl Visit<'_> for ComponentVisitor {
                     continue;
                 };
 
-                let raw_type = format!("{:?}", &*pat_type.ty);
+                // Use ToTokens to get the source-level type string (e.g. "bool",
+                // "MaybeSignal<String>") instead of syn's Debug which prints AST
+                // structure (e.g. "Type::Path { ... }").
+                let raw_type = pat_type.ty.to_token_stream().to_string();
                 let has_default = pat_type.attrs.iter().any(|attr| {
                     if let Meta::List(list) = &attr.meta {
                         list.path.is_ident("prop") && list.tokens.to_string().contains("default")

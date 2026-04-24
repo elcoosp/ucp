@@ -2334,6 +2334,7 @@ dependencies = [
  "async-trait",
  "mockito",
  "octocrab",
+ "quote",
  "regex",
  "reqwest",
  "serde",

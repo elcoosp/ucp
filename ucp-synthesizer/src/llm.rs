@@ -18,7 +18,6 @@ pub fn build_ollama_payload(prompt: &str, model: &str) -> serde_json::Value {
 }
 
 /// Infer behavior from a code string via local Ollama instance.
-/// Sends code directly without wrapping in markdown fences.
 pub async fn infer_behavior(client: &Client, code: &str, prompt: &str, model: &str) -> Result<serde_json::Value> {
     let full_prompt = format!("{}\n\nCode:\n```rust\n{}\n```", prompt, code);
     let payload = build_ollama_payload(&full_prompt, model);
@@ -44,30 +43,17 @@ pub async fn infer_behavior(client: &Client, code: &str, prompt: &str, model: &s
     })
 }
 
-/// Extract source code from component source repos for LLM enrichment.
-/// Returns concatenated code blocks from all attributed source files.
-pub fn extract_source_code(components: &[ucp_core::cam::CanonicalAbstractComponent]) -> Vec<String> {
-    let mut sources: Vec<String> = Vec::new();
-    for comp in components {
-        for src in &comp.source_repos {
-            let path = std::path::Path::new(&src.file_path);
-            if let Ok(content) = std::fs::read_to_string(path) {
-                sources.push(content);
-            }
-        }
-    }
-    sources
-}
-
 /// Build a component enrichment prompt for the LLM.
-pub fn build_enrichment_prompt(component_name: &str) -> String {
+pub fn build_enrichment_prompt(component_name: &str, code: &str) -> String {
     format!(
         "Analyze this UI component named '{}' and return JSON with:\n\
          {{\n\
          \"description\": \"A one-sentence semantic description of what this component does\",\n\
          \"smdl\": \"SMDL state machine definition or empty string if none\",\n\
          \"keywords\": [\"list\", \"of\", \"semantic\", \"keywords\"]\n\
-         }}",
-        component_name
+         }}\n\n\
+         Code:\n{}",
+        component_name,
+        code
     )
 }
