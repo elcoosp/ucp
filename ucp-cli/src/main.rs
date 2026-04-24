@@ -2,8 +2,15 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Parser)]
-#[command(name = "ucp", about = "UCP v4.0 AI Unification Engine")]
+#[command(
+    name = "ucp",
+    about = "UCP v4.0 AI Unification Engine",
+    version,
+    after_help = "EXAMPLES:\n    ucp bootstrap --source-dir ./src\n    ucp bootstrap --source-dir ./src --ollama-url http://localhost:11434 --llm-model llama3\n\n    ucp validate ucp-spec.json\n\n    ucp merge --input a.json --input b.json -o merged.json\n    ucp merge --input leptos.json --input react.json --input vue.json -o unified.json --html-dir ./review\n\n    ucp components ucp-spec.json\n    ucp components --verbose ucp-spec.json\n    ucp components --filter Button ucp-spec.json"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -12,6 +19,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Run the full AI synthesis pipeline on a local source directory
+    #[command(after_help = "EXAMPLES:\n    ucp bootstrap --source-dir ./src\n    ucp bootstrap --source-dir ./src --ollama-url http://localhost:11434 --llm-model llama3")]
     Bootstrap {
         #[arg(long)]
         source_dir: String,
@@ -22,11 +30,15 @@ enum Commands {
         #[arg(long, default_value = "glm-5:cloud")]
         llm_model: String,
     },
+
     /// Validate a UCP spec file
+    #[command(after_help = "EXAMPLES:\n    ucp validate ucp-spec.json\n    ucp validate ./ucp-output/merged.json")]
     Validate {
         spec: PathBuf,
     },
+
     /// Merge multiple UCP spec files into a unified spec
+    #[command(after_help = "EXAMPLES:\n    ucp merge --input a.json --input b.json -o merged.json\n    ucp merge --input leptos.json --input react.json --input vue.json -o unified.json --html-dir ./review")]
     Merge {
         #[arg(long, num_args = 1..)]
         input: Vec<PathBuf>,
@@ -34,6 +46,16 @@ enum Commands {
         output: PathBuf,
         #[arg(long, default_value = "./ucp-output")]
         html_dir: String,
+    },
+
+    /// List components in a UCP spec file
+    #[command(after_help = "EXAMPLES:\n    ucp components ucp-spec.json\n    ucp components --verbose ucp-spec.json\n    ucp components --filter Button ucp-spec.json")]
+    Components {
+        spec: PathBuf,
+        #[arg(long, short = 'v')]
+        verbose: bool,
+        #[arg(long, short = 'f')]
+        filter: Option<String>,
     },
 }
 
@@ -47,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Validate { spec } => cmd_validate(&spec),
         Commands::Merge { input, output, html_dir } => cmd_merge(&input, &output, &html_dir),
+        Commands::Components { spec, verbose, filter } => cmd_components(&spec, verbose, &filter),
     }
 }
 
@@ -145,6 +168,77 @@ fn cmd_merge(inputs: &[PathBuf], output: &PathBuf, html_dir: &str) -> anyhow::Re
     }
 
     println!("\n✅ Merge complete!");
+    Ok(())
+}
+
+fn cmd_components(spec: &PathBuf, verbose: bool, filter: &Option<String>) -> anyhow::Result<()> {
+    let output = ucp_synthesizer::pipeline::SynthesisOutput::load_from_file(spec)
+        .context("Failed to load spec")?;
+
+    let mut components: Vec<&ucp_core::cam::CanonicalAbstractComponent> = output
+        .components
+        .iter()
+        .filter(|c| {
+            filter
+                .as_ref()
+                .map_or(true, |f| c.id.to_lowercase().contains(&f.to_lowercase()))
+        })
+        .collect();
+
+    if components.is_empty() {
+        println!("No components found.");
+        return Ok(());
+    }
+
+    components.sort_by(|a, b| a.id.cmp(&b.id));
+
+    println!("{} component(s) in {}\n", components.len(), spec.display());
+
+    for comp in &components {
+        let name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
+        let source = comp
+            .source_repos
+            .first()
+            .map(|s| s.file_path.as_str())
+            .unwrap_or("unknown");
+        let events_len = comp.events.len();
+
+        println!("  🧩 {} (from {})", name, source);
+        if events_len > 0 {
+            let event_names: Vec<_> = comp
+                .events
+                .iter()
+                .map(|e| e.canonical_name.as_str())
+                .collect();
+            println!("     Events: {}", event_names.join(", "));
+        }
+
+        if verbose {
+            for prop in &comp.props {
+                let conflict_marker = if prop.conflicts.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{} conflict(s)]", prop.conflicts.len())
+                };
+                println!(
+                    "     - {}: {:?} (conf: {:.2}){}",
+                    prop.canonical_name, prop.abstract_type, prop.confidence, conflict_marker
+                );
+            }
+
+            if let Some(ref sm) = comp.extracted_state_machine {
+                println!(
+                    "     State machine: {} (initial: {}, {} states)",
+                    sm.id,
+                    sm.initial,
+                    sm.states.len()
+                );
+            }
+        } else {
+            println!("     {} prop(s)", comp.props.len());
+        }
+    }
+
     Ok(())
 }
 
