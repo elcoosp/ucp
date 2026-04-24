@@ -1,2 +1,31 @@
+# Generated output from bootstrap
+ucp-output/
+
+# Local cache from discovery agent
+.ucp-cache/
+
+# Local LLM / Ollama artifacts (if testing locally)
+*.bin
+*.bintray
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+target/
+dist/
+node_modules/
+
+# Environment variables (CRITICAL: Never commit these)
+.env
+.env.local
+
 wr.sh
-target
