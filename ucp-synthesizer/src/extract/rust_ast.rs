@@ -5,6 +5,7 @@ use ucp_core::Result;
 #[derive(Debug, Clone)]
 pub struct RawComponentExtraction {
     pub name: String,
+    pub line_start: usize,
     pub props: Vec<RawPropExtraction>,
 }
 
@@ -53,7 +54,8 @@ impl Visit<'_> for ComponentVisitor {
             }
         }
 
-        self.0.push(RawComponentExtraction { name, props });
+        // line_start is set to 0 here; post-processed after visiting.
+        self.0.push(RawComponentExtraction { name, line_start: 0, props });
     }
 }
 
@@ -63,5 +65,15 @@ pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>
 
     let mut visitor = ComponentVisitor(Vec::new());
     syn::visit::visit_file(&mut visitor, &ast);
+
+    // proc_macro2::Span does not expose line/column info outside of proc-macro
+    // context. Compute line_start by searching for "fn <name>" in the source.
+    for comp in &mut visitor.0 {
+        let search = format!("fn {}", comp.name);
+        if let Some(pos) = code.find(&search) {
+            comp.line_start = code[..pos].matches('\n').count() + 1;
+        }
+    }
+
     Ok(visitor.0)
 }

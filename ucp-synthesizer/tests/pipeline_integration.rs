@@ -49,6 +49,14 @@ async fn pipeline_scans_and_parses_rust_components() {
     assert_eq!(output.stats.components_found, 1);
     assert_eq!(output.stats.conflicts_detected, 0);
     assert!(!output.stats.llm_enriched);
+
+    // SourceAttribution should have real line numbers, not hardcoded 0
+    let card = &output.components[0];
+    assert!(
+        card.source_repos[0].line_start > 0,
+        "Expected line_start > 0, got {}",
+        card.source_repos[0].line_start
+    );
 }
 
 #[tokio::test]
@@ -179,6 +187,13 @@ export const Badge = (props: BadgeProps) => {
     let comp = &output.components[0];
     assert!(comp.id.contains("Badge"));
     assert_eq!(comp.props.len(), 3);
+
+    // TSX source attribution should also have real line numbers
+    assert!(
+        comp.source_repos[0].line_start > 0,
+        "Expected TSX line_start > 0, got {}",
+        comp.source_repos[0].line_start
+    );
 
     let props_by_name: std::collections::HashMap<_, _> =
         comp.props.iter().map(|p| (p.canonical_name.as_str(), p)).collect();

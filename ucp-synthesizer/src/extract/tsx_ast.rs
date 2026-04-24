@@ -3,6 +3,7 @@ use ucp_core::Result;
 #[derive(Debug, Clone)]
 pub struct RawTsxExtraction {
     pub name: String,
+    pub line_start: usize,
     pub props: Vec<RawTsxPropExtraction>,
 }
 
@@ -17,8 +18,10 @@ pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
     let mut components = Vec::new();
     let mut current_props: Vec<RawTsxPropExtraction> = Vec::new();
     let mut in_interface = false;
+    let mut current_line = 0usize;
 
     for line in code.lines() {
+        current_line += 1;
         let trimmed = line.trim();
 
         if trimmed.starts_with("export interface") && trimmed.contains("Props") {
@@ -67,6 +70,7 @@ pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
                 if !name.is_empty() {
                     components.push(RawTsxExtraction {
                         name: name.to_string(),
+                        line_start: current_line,
                         props: current_props.clone(),
                     });
                     current_props.clear();

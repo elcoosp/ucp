@@ -227,6 +227,10 @@ async fn enrich_components_with_llm(
 
 /// Convert the serde_json::Value returned by `ucp_core::smdl::parse_smdl`
 /// into a proper `StateMachine` CAM struct.
+///
+/// Note: This is a free function rather than `impl TryFrom<&Value> for StateMachine`
+/// because both `StateMachine` (ucp_core) and `Value` (serde_json) are foreign types,
+/// which violates Rust's orphan rules.
 fn smdl_json_to_state_machine(value: &serde_json::Value) -> Option<StateMachine> {
     let id = value.get("id")?.as_str()?.to_string();
     let initial = value.get("initial")?.as_str()?.to_string();
@@ -430,7 +434,7 @@ fn unify_rust_component(
         source_repos: vec![SourceAttribution {
             repo_url: file_path.to_string(),
             file_path: file_path.to_string(),
-            line_start: 0,
+            line_start: raw.line_start,
         }],
     })
 }
@@ -477,7 +481,7 @@ fn unify_tsx_component(
         source_repos: vec![SourceAttribution {
             repo_url: file_path.to_string(),
             file_path: file_path.to_string(),
-            line_start: 0,
+            line_start: raw.line_start,
         }],
     })
 }
