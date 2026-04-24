@@ -11,6 +11,7 @@ use crate::security::is_path_safe_to_parse;
 use crate::unify::map_raw_type_to_cam;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[must_use = "discarding synthesis output loses all extracted component data"]
 pub struct SynthesisOutput {
     pub ucp_version: String,
     pub components: Vec<CanonicalAbstractComponent>,
@@ -47,10 +48,12 @@ const BASE_CONFIDENCE_RUST: f32 = 0.95;
 const BASE_CONFIDENCE_TSX: f32 = 0.90;
 const ANY_PENALTY_PER_PROP: f32 = 0.08;
 
+#[must_use = "pipeline output should be consumed or propagated"]
 pub async fn run_pipeline(source_dir: &str) -> Result<SynthesisOutput> {
     run_pipeline_with_options(source_dir, &PipelineOptions::default()).await
 }
 
+#[must_use = "pipeline output should be consumed or propagated"]
 pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions) -> Result<SynthesisOutput> {
     let mut files_scanned = 0usize;
     let mut files_parsed = 0usize;
@@ -73,7 +76,8 @@ pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions)
         }
 
         files_scanned += 1;
-        let content = std::fs::read_to_string(path)?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| ucp_core::UcpError::Io(e))?;
         source_map.insert(path_str.clone(), content.clone());
 
         match ext {
@@ -165,7 +169,7 @@ async fn enrich_components_with_llm(
 ) -> Result<bool> {
     let client = reqwest::Client::builder()
         .build()
-        .map_err(|e| ucp_core::UcpError::LlmInference(e.to_string()))?;
+        .map_err(|e| ucp_core::UcpError::Http(e.to_string()))?;
 
     let mut any_success = false;
 

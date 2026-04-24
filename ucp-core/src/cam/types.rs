@@ -1,0 +1,55 @@
+use serde::{Deserialize, Serialize};
+
+/// Top-level canonical representation of a UI component across codebases.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use = "discarding a synthesized component is likely a bug"]
+pub struct CanonicalAbstractComponent {
+    pub id: String,
+    pub semantic_fingerprint: super::SemanticFingerprint,
+    pub props: Vec<super::CanonicalAbstractProp>,
+    pub events: Vec<super::CanonicalAbstractEvent>,
+    pub extracted_state_machine: Option<super::StateMachine>,
+    pub extracted_parts: Vec<super::ExtractedPart>,
+    pub source_repos: Vec<super::SourceAttribution>,
+}
+
+/// A single abstract prop in the canonical model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanonicalAbstractProp {
+    pub canonical_name: String,
+    pub abstract_type: super::AbstractPropType,
+    pub reactivity: super::AbstractReactivity,
+    pub sources: Vec<super::PropSourceMapping>,
+    pub confidence: f32,
+    pub conflicts: Vec<super::Conflict>,
+}
+
+/// A semantic event emitted by a component (extracted from callback props).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanonicalAbstractEvent {
+    pub canonical_name: String,
+    pub abstract_payload: super::AbstractPropType,
+}
+
+/// Maps an original prop name/type from a specific source to its canonical form.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PropSourceMapping {
+    pub repo_id: String,
+    pub original_name: String,
+    pub original_type: String,
+}
+
+/// A selectable sub-region of a component (slots, parts, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedPart {
+    pub name: String,
+    pub selectable: bool,
+}
+
+/// Records where a component was extracted from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceAttribution {
+    pub repo_url: String,
+    pub file_path: String,
+    pub line_start: usize,
+}
