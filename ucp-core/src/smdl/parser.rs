@@ -1,18 +1,19 @@
 use pest::Parser;
 use pest_derive::Parser;
-use serde_json::{json, Value};
 use std::collections::BTreeMap;
+
+use super::SmdlComponent;
 
 #[derive(Parser)]
 #[grammar = "src/smdl/smdl.pest"]
 pub struct SmdlParser;
 
-pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<Value> {
+pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<SmdlComponent> {
     let pairs = SmdlParser::parse(Rule::component, input.trim())
         .map_err(|e| crate::UcpError::Parsing(e.to_string()))?;
 
     let mut initial_state = String::new();
-    let mut states_json = BTreeMap::new();
+    let mut states = BTreeMap::new();
 
     for component_pair in pairs {
         for inner_pair in component_pair.into_inner() {
@@ -26,8 +27,6 @@ pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<Value> {
                         Rule::transition => {
                             let mut target = String::new();
                             let mut effects = Vec::new();
-                            // Grammar: "on" IDENT "->" IDENT "{" side_effect* "}"
-                            // First IDENT = event name, second IDENT = target state
                             let mut ident_index = 0;
 
                             for t_pair in state_inner.into_inner() {
@@ -47,10 +46,10 @@ pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<Value> {
                             }
 
                             if !target.is_empty() {
-                                transitions.insert(target.clone(), json!({
-                                    "target": target,
-                                    "sideEffects": effects
-                                }));
+                                transitions.insert(target.clone(), super::SmdlTransition {
+                                    target,
+                                    side_effects: effects,
+                                });
                             }
                         }
                         _ => {}
@@ -61,14 +60,16 @@ pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<Value> {
                     initial_state = state_name.clone();
                 }
 
-                states_json.insert(state_name, json!({ "on": transitions }));
+                states.insert(state_name, super::SmdlState {
+                    on: if transitions.is_empty() { None } else { Some(transitions) },
+                });
             }
         }
     }
 
-    Ok(json!({
-        "id": "ucp-smdl",
-        "initial": initial_state,
-        "states": states_json
-    }))
+    Ok(SmdlComponent {
+        id: "ucp-smdl".to_string(),
+        initial: initial_state,
+        states,
+    })
 }

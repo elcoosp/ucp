@@ -17,6 +17,21 @@ pub fn build_ollama_payload(prompt: &str, model: &str) -> serde_json::Value {
     })
 }
 
+/// Typed representation of the LLM enrichment response.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct EnrichmentResponse {
+    pub description: Option<String>,
+    pub smdl: Option<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+}
+
+/// Parse a raw JSON value into a typed `EnrichmentResponse`.
+pub fn parse_enrichment_response(value: serde_json::Value) -> Result<EnrichmentResponse> {
+    serde_json::from_value(value)
+        .map_err(|e| UcpError::LlmInference(format!("Failed to parse LLM response: {}", e)))
+}
+
 /// Infer behavior from a code string via Ollama instance at the given base URL.
 pub async fn infer_behavior(
     client: &Client,

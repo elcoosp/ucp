@@ -1,7 +1,7 @@
 use ucp_core::smdl::parse_smdl;
 
 #[test]
-fn parse_simple_dialog_smdl_to_json() {
+fn parse_simple_dialog_smdl_to_typed() {
     let input = r#"
     component Dialog {
         state Closed {
@@ -18,26 +18,20 @@ fn parse_simple_dialog_smdl_to_json() {
 
     let result = parse_smdl(input).unwrap();
 
-    // Structural assertions on the serde_json Value – no string formatting dependency
-    assert_eq!(result["id"], "ucp-smdl", "id mismatch");
-    assert_eq!(result["initial"], "Closed", "initial state mismatch");
+    assert_eq!(result.id, "ucp-smdl");
+    assert_eq!(result.initial, "Closed");
 
-    // Verify both states exist
-    assert!(result["states"]["Closed"].is_object(), "Closed state missing");
-    assert!(result["states"]["Open"].is_object(), "Open state missing");
+    assert!(result.states.contains_key("Closed"));
+    assert!(result.states.contains_key("Open"));
 
-    // Verify Closed -> Open transition
-    let closed_transitions = &result["states"]["Closed"]["on"];
-    assert!(closed_transitions["Open"].is_object(), "Closed->Open transition missing");
-    assert_eq!(closed_transitions["Open"]["target"], "Open");
+    let closed_on = result.states["Closed"].on.as_ref().unwrap();
+    assert!(closed_on.contains_key("Open"));
+    assert_eq!(closed_on["Open"].target, "Open");
 
-    // Verify side effects contain the focus directive
-    let side_effects = closed_transitions["Open"]["sideEffects"].as_array()
-        .expect("sideEffects should be an array");
-    assert!(side_effects.iter().any(|e| e.as_str().unwrap().contains("focus: move_to")),
+    let side_effects = &closed_on["Open"].side_effects;
+    assert!(side_effects.iter().any(|e| e.contains("focus: move_to")),
         "Missing 'focus: move_to' side effect, got: {:?}", side_effects);
 
-    // Verify Open -> Closed transition
-    let open_transitions = &result["states"]["Open"]["on"];
-    assert_eq!(open_transitions["Closed"]["target"], "Closed");
+    let open_on = result.states["Open"].on.as_ref().unwrap();
+    assert_eq!(open_on["Closed"].target, "Closed");
 }

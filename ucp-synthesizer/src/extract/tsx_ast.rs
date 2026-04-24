@@ -19,11 +19,11 @@ pub struct RawTsxPropExtraction {
 /// Supports:
 /// - `export interface FooProps { ... }` and `export type FooProps = { ... }`
 /// - Multi-line prop types via brace-depth tracking
-///   (e.g. `data: Array<{ id: string; label: string }>`)
-/// - Nested object types (e.g. `theme: { primary: string }`)
-/// - Generic interfaces (e.g. `interface TableProps<T> { ... }`)
-/// - Both `export const X =` and `export function X(` component forms
+/// - Nested object types and generic interfaces
+/// - `export const X =` and `export function X(` component forms
 /// - `export default function X(` named default exports
+/// - `const X: React.FC<XProps> =` and `const X: FC<XProps> =` forms
+/// - `class X extends React.Component<XProps>` class components
 pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
     let mut components = Vec::new();
     let mut current_props: Vec<RawTsxPropExtraction> = Vec::new();
@@ -53,7 +53,6 @@ pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
                     '}' => {
                         brace_depth -= 1;
                         if brace_depth == 0 {
-                            // Block complete — parse props from the body
                             in_block = false;
                             if let Some(body) = extract_interface_body(&block_buffer) {
                                 parse_props_from_body(&body, &mut current_props);
@@ -67,7 +66,7 @@ pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
             continue;
         }
 
-        // --- Detect component export (const, function, or default) ---
+        // --- Detect component export ---
         if is_component_export(trimmed) {
             if let Some(name) = extract_component_name(trimmed) {
                 if !name.is_empty() {
@@ -85,8 +84,7 @@ pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
     Ok(components)
 }
 
-/// Check if a line starts a Props interface or type alias that contains a
-/// brace-delimited body (skip union types like `type X = "a" | "b"`).
+/// Check if a line starts a Props interface or type alias with braces.
 fn is_props_declaration(line: &str) -> bool {
     let is_interface = line.starts_with("export interface") || line.starts_with("interface");
     let is_type = line.starts_with("export type") || line.starts_with("type");
@@ -94,7 +92,7 @@ fn is_props_declaration(line: &str) -> bool {
     (is_interface || is_type) && line.contains("Props") && line.contains('{')
 }
 
-/// Check if a line is a component export (const arrow, function, or named default).
+/// Check if a line is a component export.
 fn is_component_export(line: &str) -> bool {
     let is_const = line.starts_with("export const") || line.starts_with("const");
     let is_fn = line.starts_with("export function") || line.starts_with("function");
@@ -103,9 +101,117 @@ fn is_component_export(line: &str) -> bool {
     (is_const && line.contains("=>"))
         || (is_fn && line.contains('('))
         || (is_default && (line.contains("=>") || line.contains('(')))
+        || is_react_fc_declaration(line)
+        || is_class_component(line)
 }
 
-/// Extract everything between the first `{` and the last `}` in a block.
+/// Check for `const X: React.FC<Props> =` or `const X: FC<Props> =`.
+fn is_react_fc_declaration(line: &str) -> bool {
+    let stripped = line
+        .strip_prefix("export ")
+        .unwrap_or(line)
+        .strip_prefix("const ")
+        .unwrap_or("");
+
+    if !stripped.contains(':') || !stripped.contains('=') {
+        return false;
+    }
+
+    let before_colon = stripped.split(':').next().unwrap_or("").trim();
+    let after_colon = stripped.split(':').nth(1).unwrap_or("");
+
+    // Name must be a valid identifier
+    if before_colon.is_empty()
+        || !before_colon.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+    {
+        return false;
+    }
+
+    // Type side must contain React.FC, FC, React.PureComponent, etc.
+    let type_part = after_colon.split('=').next().unwrap_or("").trim();
+    type_part.contains("React.FC")
+        || type_part.contains("React.PureComponent")
+        || (type_part.starts_with("FC<") || type_part.starts_with("FC <"))
+        || (type_part.starts_with("PureComponent<") || type_part.starts_with("PureComponent <"))
+}
+
+/// Check for `class X extends React.Component<Props>` patterns.
+fn is_class_component(line: &str) -> bool {
+    let stripped = line
+        .strip_prefix("export ")
+        .unwrap_or(line);
+
+    if !stripped.starts_with("class ") {
+        return false;
+    }
+
+    stripped.contains("extends")
+        && (stripped.contains("React.Component")
+            || stripped.contains("React.PureComponent")
+            || stripped.contains("Component<"))
+}
+
+/// Extract the component name from various export forms.
+fn extract_component_name(line: &str) -> Option<&str> {
+    // Named default function
+    if line.starts_with("export default function") {
+        let rest = line.strip_prefix("export default function")?;
+        return rest
+            .trim()
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .next()
+            .filter(|n| !n.is_empty());
+    }
+
+    // Named default class
+    if line.starts_with("export default class") {
+        let rest = line.strip_prefix("export default class")?;
+        return rest
+            .trim()
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .next()
+            .filter(|n| !n.is_empty());
+    }
+
+    // Class component: `class X extends ...`
+    if line.starts_with("class ") || line.starts_with("export class ") {
+        let rest = line
+            .strip_prefix("export class ")
+            .or_else(|| line.strip_prefix("class "))?;
+        return rest
+            .trim()
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .next()
+            .filter(|n| !n.is_empty());
+    }
+
+    // React.FC: `const X: React.FC<Props> =`
+    if is_react_fc_declaration(line) {
+        let stripped = line
+            .strip_prefix("export ")
+            .unwrap_or(line)
+            .strip_prefix("const ")
+            .unwrap_or("");
+        return stripped
+            .split(':')
+            .next()
+            .map(|s| s.trim())
+            .filter(|n| !n.is_empty());
+    }
+
+    // Regular const / function
+    let rest = line
+        .strip_prefix("export const")
+        .or_else(|| line.strip_prefix("const"))
+        .or_else(|| line.strip_prefix("export function"))
+        .or_else(|| line.strip_prefix("function"))?;
+
+    rest.trim()
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .next()
+        .filter(|n| !n.is_empty())
+}
+
 fn extract_interface_body(block: &str) -> Option<String> {
     let first = block.find('{')?;
     let last = block.rfind('}')?;
@@ -115,60 +221,39 @@ fn extract_interface_body(block: &str) -> Option<String> {
     Some(block[first + 1..last].to_string())
 }
 
-/// Split the interface body by `;` and `,` at depth 0 (respecting nested
-/// braces and angle brackets), then parse each segment as a prop.
 fn parse_props_from_body(body: &str, props: &mut Vec<RawTsxPropExtraction>) {
-    let mut depth = 0usize;   // brace depth
-    let mut angle = 0i32;     // < > depth
+    let mut depth = 0usize;
+    let mut angle = 0i32;
     let mut current = String::new();
 
     for ch in body.chars() {
         match ch {
-            '{' => {
-                depth += 1;
-                current.push(ch);
-            }
-            '}' => {
-                depth -= 1;
-                current.push(ch);
-            }
-            '<' => {
-                angle += 1;
-                current.push(ch);
-            }
-            '>' => {
-                angle -= 1;
-                current.push(ch);
-            }
+            '{' => { depth += 1; current.push(ch); }
+            '}' => { depth -= 1; current.push(ch); }
+            '<' => { angle += 1; current.push(ch); }
+            '>' => { angle -= 1; current.push(ch); }
             ';' | ',' if depth == 0 && angle == 0 => {
                 parse_single_prop(current.trim(), props);
                 current.clear();
             }
-            _ => {
-                current.push(ch);
-            }
+            _ => { current.push(ch); }
         }
     }
 
-    // Handle last prop without trailing separator
     if !current.trim().is_empty() {
         parse_single_prop(current.trim(), props);
     }
 }
 
-/// Parse a single prop declaration like `name?: Type` or `readonly name: Type`.
 fn parse_single_prop(segment: &str, props: &mut Vec<RawTsxPropExtraction>) {
     let seg = segment.trim();
 
-    // Skip empty segments, line comments, block comment starts
     if seg.is_empty() || seg.starts_with("//") || seg.starts_with("/*") || seg.starts_with("*") {
         return;
     }
 
-    // Strip `readonly` keyword
     let seg = seg.strip_prefix("readonly").unwrap_or(seg).trim();
 
-    // Find the colon separating name from type, respecting nested delimiters
     let colon_pos = match find_prop_colon(seg) {
         Some(pos) => pos,
         None => return,
@@ -181,12 +266,7 @@ fn parse_single_prop(segment: &str, props: &mut Vec<RawTsxPropExtraction>) {
     if prop_name.is_empty() {
         return;
     }
-    // Props must start with an alphabetic char or underscore
-    if !prop_name
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_alphabetic() || c == '_')
-    {
+    if !prop_name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') {
         return;
     }
 
@@ -199,7 +279,6 @@ fn parse_single_prop(segment: &str, props: &mut Vec<RawTsxPropExtraction>) {
     });
 }
 
-/// Find the first `:` that is not inside `< >`, `( )`, or `[ ]` delimiters.
 fn find_prop_colon(s: &str) -> Option<usize> {
     let mut angle = 0i32;
     let mut paren = 0i32;
@@ -218,35 +297,4 @@ fn find_prop_colon(s: &str) -> Option<usize> {
         }
     }
     None
-}
-
-/// Extract the component name from various export forms.
-///
-/// - `export const Name = ...` → `Name`
-/// - `const Name = ...` → `Name`
-/// - `export function Name(...)` → `Name`
-/// - `function Name(...)` → `Name`
-/// - `export default function Name(...)` → `Name`
-/// - `export default (...)` / `export default () => ...` → `None` (anonymous)
-fn extract_component_name(line: &str) -> Option<&str> {
-    // Handle named default exports: `export default function X`
-    if line.starts_with("export default function") {
-        let rest = line.strip_prefix("export default function")?;
-        return rest
-            .trim()
-            .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .next()
-            .filter(|n| !n.is_empty());
-    }
-
-    let rest = line
-        .strip_prefix("export const")
-        .or_else(|| line.strip_prefix("const"))
-        .or_else(|| line.strip_prefix("export function"))
-        .or_else(|| line.strip_prefix("function"))?;
-
-    rest.trim()
-        .split(|c: char| !c.is_alphanumeric() && c != '_')
-        .next()
-        .filter(|n| !n.is_empty())
 }

@@ -1,3 +1,4 @@
+use std::os::unix::process::CommandExt;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
@@ -7,7 +8,7 @@ use std::path::{Path, PathBuf};
     name = "ucp",
     about = "UCP v4.0 AI Unification Engine",
     version,
-    after_help = "EXAMPLES:\n    ucp bootstrap --source-dir ./src\n    ucp bootstrap --source-dir ./src --ollama-url http://localhost:11434 --llm-model llama3\n\n    ucp validate ucp-spec.json\n\n    ucp merge --input a.json --input b.json -o merged.json\n    ucp merge --input leptos.json --input react.json --input vue.json -o unified.json --html-dir ./review\n\n    ucp components ucp-spec.json\n    ucp components --verbose ucp-spec.json\n    ucp components --filter Button ucp-spec.json"
+    after_help = "EXAMPLES:\n    ucp bootstrap --source-dir ./src\n    ucp bootstrap --source-dir ./src --ollama-url http://localhost:11434 --llm-model llama3\n\n    ucp validate ucp-spec.json\n\n    ucp merge --input a.json --input b.json -o merged.json\n    ucp merge --input leptos.json --input react.json --input vue.json -o unified.json --html-dir ./review\n\n    ucp components ucp-spec.json\n    ucp components --format json ucp-spec.json\n    ucp components --filter \"Button\" ucp-spec.json\n    ucp components --filter \"^Button$|^Input$\" ucp-spec.json\n\n    ucp bootstrap --source-dir ./src --watch"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -17,7 +18,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Run the full AI synthesis pipeline on a local source directory
-    #[command(after_help = "EXAMPLES:\n    ucp bootstrap --source-dir ./src\n    ucp bootstrap --source-dir ./src --ollama-url http://localhost:11434 --llm-model llama3")]
+    #[command(after_help = "EXAMPLES:\n    ucp bootstrap --source-dir ./src\n    ucp bootstrap --source-dir ./src --ollama-url http://localhost:11434 --llm-model llama3\n    ucp bootstrap --source-dir ./src --watch")]
     Bootstrap {
         #[arg(long)]
         source_dir: String,
@@ -27,6 +28,9 @@ enum Commands {
         ollama_url: Option<String>,
         #[arg(long, default_value = "glm-5:cloud")]
         llm_model: String,
+        /// Watch for file changes and re-run (requires watchexec)
+        #[arg(long)]
+        watch: bool,
     },
 
     /// Validate a UCP spec file
@@ -47,13 +51,17 @@ enum Commands {
     },
 
     /// List components in a UCP spec file
-    #[command(after_help = "EXAMPLES:\n    ucp components ucp-spec.json\n    ucp components --verbose ucp-spec.json\n    ucp components --filter Button ucp-spec.json")]
+    #[command(after_help = "EXAMPLES:\n    ucp components ucp-spec.json\n    ucp components --format json ucp-spec.json\n    ucp components --filter \"Button\" ucp-spec.json\n    ucp components --filter \"^Button$|^Input$\" ucp-spec.json")]
     Components {
         spec: PathBuf,
-        #[arg(long, short = 'v')]
-        verbose: bool,
+        /// Output format: text or json
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        format: String,
+        /// Filter components by name (substring or regex)
         #[arg(long, short = 'f')]
         filter: Option<String>,
+        #[arg(long, short = 'v')]
+        verbose: bool,
     },
 }
 
@@ -62,12 +70,14 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Bootstrap { source_dir, output_dir, ollama_url, llm_model } => {
-            cmd_bootstrap(&source_dir, &output_dir, ollama_url, &llm_model).await
+        Commands::Bootstrap { source_dir, output_dir, ollama_url, llm_model, watch } => {
+            cmd_bootstrap(&source_dir, &output_dir, ollama_url, &llm_model, watch).await
         }
         Commands::Validate { spec } => cmd_validate(&spec),
         Commands::Merge { input, output, html_dir } => cmd_merge(&input, &output, &html_dir),
-        Commands::Components { spec, verbose, filter } => cmd_components(&spec, verbose, &filter),
+        Commands::Components { spec, format, filter, verbose } => {
+            cmd_components(&spec, &format, verbose, &filter)
+        }
     }
 }
 
@@ -76,7 +86,39 @@ async fn cmd_bootstrap(
     output_dir: &str,
     ollama_url: Option<String>,
     llm_model: &str,
+    watch: bool,
 ) -> anyhow::Result<()> {
+    if watch {
+        let mut args: Vec<String> = vec![
+            "watchexec".to_string(),
+            "-w".to_string(),
+            source_dir.to_string(),
+            "--clear".to_string(),
+            "-r".to_string(),
+            "ucp".to_string(),
+            "bootstrap".to_string(),
+            "--source-dir".to_string(),
+            source_dir.to_string(),
+        ];
+        if let Some(ref url) = ollama_url {
+            args.push("--ollama-url".to_string());
+            args.push(url.clone());
+        }
+        if llm_model != "glm-5:cloud" {
+            args.push("--llm-model".to_string());
+            args.push(llm_model.to_string());
+        }
+        if output_dir != "./ucp-output" {
+            args.push("--output-dir".to_string());
+            args.push(output_dir.to_string());
+        }
+        let err = std::process::Command::new("watchexec")
+            .args(&args)
+            .exec();
+        eprintln!("Failed to launch watchexec (install: brew install watchexec): {err}");
+        std::process::exit(1);
+    }
+
     println!("🔍 Scanning {}...", source_dir);
 
     let dry_run = ollama_url.is_none();
@@ -169,19 +211,29 @@ fn cmd_merge(inputs: &[PathBuf], output: &Path, html_dir: &str) -> anyhow::Resul
     Ok(())
 }
 
-fn cmd_components(spec: &Path, verbose: bool, filter: &Option<String>) -> anyhow::Result<()> {
+fn cmd_components(spec: &Path, format: &str, verbose: bool, filter: &Option<String>) -> anyhow::Result<()> {
     let output = ucp_synthesizer::pipeline::SynthesisOutput::load_from_file(spec)
         .context("Failed to load spec")?;
+
+    let filter_re: Option<regex::Regex> = filter.as_ref().map(|f| {
+        regex::Regex::new(f).with_context(|| format!("Invalid filter regex: {f}"))
+    }).transpose()?;
 
     let mut components: Vec<&ucp_core::cam::CanonicalAbstractComponent> = output
         .components
         .iter()
         .filter(|c| {
-            filter
+            filter_re
                 .as_ref()
-                .is_none_or(|f| c.id.to_lowercase().contains(&f.to_lowercase()))
+                .is_none_or(|re| re.is_match(&c.id))
         })
         .collect();
+
+    if format == "json" {
+        let json = serde_json::to_string_pretty(&components)?;
+        println!("{json}");
+        return Ok(());
+    }
 
     if components.is_empty() {
         println!("No components found.");
@@ -227,9 +279,7 @@ fn cmd_components(spec: &Path, verbose: bool, filter: &Option<String>) -> anyhow
             if let Some(ref sm) = comp.extracted_state_machine {
                 println!(
                     "     State machine: {} (initial: {}, {} states)",
-                    sm.id,
-                    sm.initial,
-                    sm.states.len()
+                    sm.id, sm.initial, sm.states.len()
                 );
             }
         } else {

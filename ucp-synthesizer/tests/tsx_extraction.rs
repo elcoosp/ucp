@@ -284,3 +284,77 @@ export default (props: AlertProps) => <div>{props.message}</div>;
     // Anonymous default exports have no extractable name — skipped
     assert_eq!(components.len(), 0);
 }
+
+#[test]
+fn extract_react_fc_component() {
+    let code = r#"
+export interface CardProps {
+  title: string;
+  children?: React.ReactNode;
+}
+const Card: React.FC<CardProps> = ({ title, children }) => {
+  return <div className="card">{title}{children}</div>;
+};
+"#;
+    let components = extract_tsx_components(code).unwrap();
+    assert_eq!(components.len(), 1);
+    assert_eq!(components[0].name, "Card");
+    assert_eq!(components[0].props.len(), 2);
+
+    let title = components[0].props.iter().find(|p| p.name == "title").unwrap();
+    assert!(!title.is_optional);
+
+    let children = components[0].props.iter().find(|p| p.name == "children").unwrap();
+    assert!(children.is_optional);
+}
+
+#[test]
+fn extract_fc_without_react_prefix() {
+    let code = r#"
+export interface BadgeProps {
+  label: string;
+}
+const Badge: FC<BadgeProps> = (props) => <span>{props.label}</span>;
+"#;
+    let components = extract_tsx_components(code).unwrap();
+    assert_eq!(components.len(), 1);
+    assert_eq!(components[0].name, "Badge");
+}
+
+#[test]
+fn extract_class_component() {
+    let code = r#"
+export interface ButtonProps {
+  label: string;
+  disabled?: boolean;
+}
+export class Button extends React.Component<ButtonProps> {
+  render() {
+    return <button disabled={this.props.disabled}>{this.props.label}</button>;
+  }
+}
+"#;
+    let components = extract_tsx_components(code).unwrap();
+    assert_eq!(components.len(), 1);
+    assert_eq!(components[0].name, "Button");
+    assert_eq!(components[0].props.len(), 2);
+}
+
+#[test]
+fn extract_pure_component_class() {
+    let code = r#"
+export interface ListProps {
+  items: string[];
+}
+export class List extends React.PureComponent<ListProps> {
+  render() {
+    return <ul>{this.props.items.map(i => <li key={i}>{i}</li>)}</ul>;
+  }
+}
+"#;
+    let components = extract_tsx_components(code).unwrap();
+    assert_eq!(components.len(), 1);
+    assert_eq!(components[0].name, "List");
+    assert_eq!(components[0].props.len(), 1);
+}
+

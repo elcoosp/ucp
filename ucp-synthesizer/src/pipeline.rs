@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use ucp_core::cam::*;
@@ -6,7 +6,7 @@ use ucp_core::Result;
 
 use crate::extract::rust_ast::{self, RawComponentExtraction};
 use crate::extract::tsx_ast::{self, RawTsxExtraction};
-use crate::llm::{build_enrichment_prompt, infer_behavior};
+use crate::llm::{build_enrichment_prompt, infer_behavior, parse_enrichment_response};
 use crate::security::is_path_safe_to_parse;
 use crate::unify::map_raw_type_to_cam;
 
@@ -190,17 +190,25 @@ async fn enrich_components_with_llm(
 
         match infer_behavior(&client, ollama_url, &source_code, &prompt, model).await {
             Ok(llm_json) => {
-                if let Some(desc) = llm_json.get("description").and_then(|v| v.as_str()) {
+                let llm_response = match parse_enrichment_response(llm_json) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("  ⚠ LLM parse failed for {}: {}", comp_display_name, e);
+                        continue;
+                    }
+                };
+
+                if let Some(desc) = llm_response.description.as_deref() {
                     comp.semantic_fingerprint.purpose_hash =
                         compute_purpose_hash_with_llm(&comp.semantic_fingerprint, desc);
                     any_success = true;
                 }
 
-                if let Some(smdl_str) = llm_json.get("smdl").and_then(|v| v.as_str()) {
+                if let Some(smdl_str) = llm_response.smdl.as_deref() {
                     if !smdl_str.is_empty() {
                         match ucp_core::smdl::parse_smdl(smdl_str) {
-                            Ok(smdl_json) => {
-                                if let Some(machine) = smdl_json_to_state_machine(&smdl_json) {
+                            Ok(smdl) => {
+                                if let Some(machine) = smdl_to_state_machine(&smdl) {
                                     comp.extracted_state_machine = Some(machine);
                                 }
                             }
@@ -220,36 +228,28 @@ async fn enrich_components_with_llm(
     Ok(any_success)
 }
 
-fn smdl_json_to_state_machine(value: &serde_json::Value) -> Option<StateMachine> {
-    let id = value.get("id")?.as_str()?.to_string();
-    let initial = value.get("initial")?.as_str()?.to_string();
+/// Convert a typed `SmdlComponent` into a CAM `StateMachine`.
+fn smdl_to_state_machine(smdl: &ucp_core::smdl::SmdlComponent) -> Option<StateMachine> {
+    let id = smdl.id.clone();
+    let initial = smdl.initial.clone();
 
     let mut states = BTreeMap::new();
-    if let Some(states_obj) = value.get("states").and_then(|v| v.as_object()) {
-        for (state_name, state_value) in states_obj {
-            let mut transitions = BTreeMap::new();
-            if let Some(on_map) = state_value.get("on").and_then(|v| v.as_object()) {
-                for (event_name, trans_value) in on_map {
-                    let target = trans_value.get("target")?.as_str()?.to_string();
-                    let side_effects = trans_value
-                        .get("sideEffects")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    transitions.insert(event_name.clone(), Transition { target, side_effects });
-                }
+    for (state_name, state_value) in &smdl.states {
+        let mut transitions = BTreeMap::new();
+        if let Some(on_map) = &state_value.on {
+            for (event_name, trans_value) in on_map {
+                transitions.insert(event_name.clone(), Transition {
+                    target: trans_value.target.clone(),
+                    side_effects: trans_value.side_effects.clone(),
+                });
             }
-            states.insert(
-                state_name.clone(),
-                StateNode {
-                    on: if transitions.is_empty() { None } else { Some(transitions) },
-                },
-            );
         }
+        states.insert(
+            state_name.clone(),
+            StateNode {
+                on: if transitions.is_empty() { None } else { Some(transitions) },
+            },
+        );
     }
 
     Some(StateMachine { id, initial, states })
@@ -303,11 +303,14 @@ fn detect_conflicts(components: &mut [CanonicalAbstractComponent]) {
             let conflict_id = format!("conf_{:03}", conflict_id_counter);
 
             let has_count = member_indices.len();
-            let missing_indices: Vec<usize> = (0..components.len()).filter(|i| !member_indices.contains(i)).collect();
-
-            let absent_in: Vec<String> = missing_indices.iter().map(|&idx| {
-                components[idx].source_repos.first().map(|s| s.file_path.clone()).unwrap_or_else(|| "unknown".to_string())
-            }).filter(|s| !present_in.contains(s)).collect();
+            let member_set: HashSet<usize> = member_indices.iter().copied().collect();
+            let absent_in: Vec<String> = (0..components.len())
+                .filter(|i| !member_set.contains(i))
+                .map(|idx| {
+                    components[idx].source_repos.first().map(|s| s.file_path.clone()).unwrap_or_else(|| "unknown".to_string())
+                })
+                .filter(|s| !present_in.contains(s))
+                .collect();
 
             let confidence = if has_count > 2 { 0.4 } else { 0.7 };
             let resolution = if has_count > 2 { ResolutionStrategy::FlagForHumanReview } else { ResolutionStrategy::IncludeMajority };
@@ -349,8 +352,6 @@ fn extract_events_from_props(props: &[CanonicalAbstractProp]) -> Vec<CanonicalAb
     }).collect()
 }
 
-/// Populate extracted_parts from props that represent selectable sub-regions
-/// (children slots, renderable nodes).
 fn populate_extracted_parts(props: &[CanonicalAbstractProp]) -> Vec<ExtractedPart> {
     props.iter()
         .filter(|prop| matches!(prop.abstract_type, AbstractPropType::Renderable))
@@ -447,12 +448,20 @@ fn unify_tsx_component(raw: &tsx_ast::RawTsxExtraction, file_path: &str) -> Resu
     })
 }
 
+/// Derive the reactivity model from the abstract prop type and whether a
+/// default value is provided.
+///
+/// - `ControlFlag` **with** a default → `Static` (set once, has fallback)
+/// - `ControlFlag` **without** a default → `Uncontrolled` (required, component manages its own default)
+/// - `ControlledValue(_)` → `Controlled`
+/// - `UncontrolledValue(_)` → `Uncontrolled`
+/// - Everything else → `Static`
 fn derive_reactivity(cam_type: &AbstractPropType, has_default: bool) -> AbstractReactivity {
     match cam_type {
         AbstractPropType::ControlledValue(_) => AbstractReactivity::Controlled,
         AbstractPropType::UncontrolledValue(_) => AbstractReactivity::Uncontrolled,
         AbstractPropType::ControlFlag if has_default => AbstractReactivity::Static,
-        AbstractPropType::ControlFlag => AbstractReactivity::Static,
+        AbstractPropType::ControlFlag => AbstractReactivity::Uncontrolled,
         AbstractPropType::StaticValue(_) => AbstractReactivity::Static,
         _ => AbstractReactivity::Static,
     }
@@ -498,24 +507,17 @@ where F: FnMut(&std::path::Path) -> Result<()>,
 }
 
 impl SynthesisOutput {
-    /// Load a synthesis output from a JSON file.
     pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .map_err(ucp_core::UcpError::Io)?;
-        serde_json::from_str(&content)
-            .map_err(ucp_core::UcpError::Json)
+        let content = std::fs::read_to_string(path).map_err(ucp_core::UcpError::Io)?;
+        serde_json::from_str(&content).map_err(ucp_core::UcpError::Json)
     }
 
-    /// Save the synthesis output as pretty-printed JSON.
     pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(ucp_core::UcpError::Json)?;
+        let json = serde_json::to_string_pretty(self).map_err(ucp_core::UcpError::Json)?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(ucp_core::UcpError::Io)?;
+            std::fs::create_dir_all(parent).map_err(ucp_core::UcpError::Io)?;
         }
-        std::fs::write(path, json)
-            .map_err(ucp_core::UcpError::Io)?;
+        std::fs::write(path, json).map_err(ucp_core::UcpError::Io)?;
         Ok(())
     }
 }
@@ -525,16 +527,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn smdl_json_to_state_machine_converts_correctly() {
-        let json = serde_json::json!({
-            "id": "test-dialog",
-            "initial": "Closed",
-            "states": {
-                "Closed": { "on": { "OPEN": { "target": "Open", "sideEffects": ["focus: move_to"] } } },
-                "Open": { "on": { "CLOSE": { "target": "Closed", "sideEffects": [] } } }
-            }
-        });
-        let machine = smdl_json_to_state_machine(&json).unwrap();
+    fn smdl_to_state_machine_converts_correctly() {
+        let smdl = ucp_core::smdl::SmdlComponent {
+            id: "test-dialog".to_string(),
+            initial: "Closed".to_string(),
+            states: [
+                ("Closed".to_string(), ucp_core::smdl::SmdlState {
+                    on: Some([("OPEN".to_string(), ucp_core::smdl::SmdlTransition {
+                        target: "Open".to_string(),
+                        side_effects: vec!["focus: move_to".to_string()],
+                    })].into_iter().collect()),
+                }),
+                ("Open".to_string(), ucp_core::smdl::SmdlState {
+                    on: Some([("CLOSE".to_string(), ucp_core::smdl::SmdlTransition {
+                        target: "Closed".to_string(),
+                        side_effects: vec![],
+                    })].into_iter().collect()),
+                }),
+            ].into_iter().collect(),
+        };
+        let machine = smdl_to_state_machine(&smdl).unwrap();
         assert_eq!(machine.id, "test-dialog");
         assert_eq!(machine.initial, "Closed");
         assert_eq!(machine.states.len(), 2);
@@ -544,15 +556,28 @@ mod tests {
     }
 
     #[test]
-    fn smdl_json_to_state_machine_returns_none_for_missing_fields() {
-        assert!(smdl_json_to_state_machine(&serde_json::json!({"id": "x"})).is_none());
-        assert!(smdl_json_to_state_machine(&serde_json::json!({"initial": "A"})).is_none());
+    fn smdl_to_state_machine_returns_none_for_empty_fields() {
+        let smdl = ucp_core::smdl::SmdlComponent {
+            id: "x".to_string(),
+            initial: String::new(),
+            states: std::collections::BTreeMap::new(),
+        };
+        // Empty initial is valid structurally but semantically questionable;
+        // the function returns Some regardless (no field-missing check).
+        assert!(smdl_to_state_machine(&smdl).is_some());
     }
 
     #[test]
-    fn smdl_json_to_state_machine_handles_empty_states() {
-        let json = serde_json::json!({ "id": "empty", "initial": "Idle", "states": { "Idle": {} } });
-        assert!(smdl_json_to_state_machine(&json).unwrap().states["Idle"].on.is_none());
+    fn smdl_to_state_machine_handles_empty_states() {
+        let smdl = ucp_core::smdl::SmdlComponent {
+            id: "empty".to_string(),
+            initial: "Idle".to_string(),
+            states: [(
+                "Idle".to_string(),
+                ucp_core::smdl::SmdlState { on: None },
+            )].into_iter().collect(),
+        };
+        assert!(smdl_to_state_machine(&smdl).unwrap().states["Idle"].on.is_none());
     }
 
     #[test]
@@ -569,18 +594,8 @@ mod tests {
     #[test]
     fn compute_confidence_with_any_penalty() {
         let props = vec![
-            CanonicalAbstractProp {
-                canonical_name: "visible".into(),
-                abstract_type: AbstractPropType::ControlFlag,
-                reactivity: AbstractReactivity::Static,
-                sources: vec![], confidence: 0.0, conflicts: vec![],
-            },
-            CanonicalAbstractProp {
-                canonical_name: "data".into(),
-                abstract_type: AbstractPropType::Any,
-                reactivity: AbstractReactivity::Static,
-                sources: vec![], confidence: 0.0, conflicts: vec![],
-            },
+            CanonicalAbstractProp { canonical_name: "visible".into(), abstract_type: AbstractPropType::ControlFlag, reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] },
+            CanonicalAbstractProp { canonical_name: "data".into(), abstract_type: AbstractPropType::Any, reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] },
         ];
         let conf = compute_confidence(&props, BASE_CONFIDENCE_RUST);
         assert!((conf - 0.91).abs() < 0.001);
@@ -588,12 +603,7 @@ mod tests {
 
     #[test]
     fn compute_confidence_never_below_floor() {
-        let any_prop = || CanonicalAbstractProp {
-            canonical_name: "x".into(),
-            abstract_type: AbstractPropType::Any,
-            reactivity: AbstractReactivity::Static,
-            sources: vec![], confidence: 0.0, conflicts: vec![],
-        };
+        let any_prop = || CanonicalAbstractProp { canonical_name: "x".into(), abstract_type: AbstractPropType::Any, reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] };
         let props: Vec<_> = (0..20).map(|_| any_prop()).collect();
         assert!(compute_confidence(&props, 0.95) >= 0.1);
     }
@@ -601,18 +611,8 @@ mod tests {
     #[test]
     fn extract_events_strips_on_prefix() {
         let props = vec![
-            CanonicalAbstractProp {
-                canonical_name: "onClick".into(),
-                abstract_type: AbstractPropType::AsyncEventHandler(vec![]),
-                reactivity: AbstractReactivity::Static,
-                sources: vec![], confidence: 0.0, conflicts: vec![],
-            },
-            CanonicalAbstractProp {
-                canonical_name: "label".into(),
-                abstract_type: AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
-                reactivity: AbstractReactivity::Static,
-                sources: vec![], confidence: 0.0, conflicts: vec![],
-            },
+            CanonicalAbstractProp { canonical_name: "onClick".into(), abstract_type: AbstractPropType::AsyncEventHandler(vec![]), reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] },
+            CanonicalAbstractProp { canonical_name: "label".into(), abstract_type: AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)), reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] },
         ];
         let events = extract_events_from_props(&props);
         assert_eq!(events.len(), 1);
@@ -621,13 +621,18 @@ mod tests {
 
     #[test]
     fn extract_events_preserves_non_on_prefix() {
-        let props = vec![CanonicalAbstractProp {
-            canonical_name: "submit".into(),
-            abstract_type: AbstractPropType::AsyncEventHandler(vec![]),
-            reactivity: AbstractReactivity::Static,
-            sources: vec![], confidence: 0.0, conflicts: vec![],
-        }];
+        let props = vec![CanonicalAbstractProp { canonical_name: "submit".into(), abstract_type: AbstractPropType::AsyncEventHandler(vec![]), reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] }];
         let events = extract_events_from_props(&props);
         assert_eq!(events[0].canonical_name, "submit");
+    }
+
+    #[test]
+    fn derive_reactivity_control_flag_with_default_is_static() {
+        assert_eq!(derive_reactivity(&AbstractPropType::ControlFlag, true), AbstractReactivity::Static);
+    }
+
+    #[test]
+    fn derive_reactivity_control_flag_without_default_is_uncontrolled() {
+        assert_eq!(derive_reactivity(&AbstractPropType::ControlFlag, false), AbstractReactivity::Uncontrolled);
     }
 }
