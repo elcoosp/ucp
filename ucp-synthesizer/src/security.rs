@@ -52,8 +52,6 @@ pub fn is_path_safe_to_parse(path: &str) -> bool {
     }
 
     // Require "src" or "components" as a path component anywhere in the path.
-    // Using Path::components() handles both "src/foo.rs" and
-    // "/tmp/x/src/foo.rs" correctly on any platform.
     path.components().any(|component| {
         component
             .as_os_str()

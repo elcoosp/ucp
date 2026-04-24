@@ -24,7 +24,7 @@ pub enum UcpError {
     Parsing(String),
 }
 
-/// A `Result` alias that must be used — silently discarding errors is almost
-/// always a bug in this codebase.
-#[must_use = "UCP Results should be propagated or explicitly handled"]
+/// A `Result` alias for UCP operations.
+/// Note: `#[must_use]` cannot be applied to type aliases in Rust.
+/// The inner `Result` already carries `#[must_use]` from the standard library.
 pub type Result<T> = std::result::Result<T, UcpError>;
