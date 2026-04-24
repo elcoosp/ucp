@@ -204,9 +204,9 @@ async fn enrich_components_with_llm(
                                     comp.extracted_state_machine = Some(machine);
                                 }
                             }
-                            Err(e) => {
-                                eprintln!("  ⚠ SMDL parse failed for {}: {}", comp_display_name, e);
-                            }
+                        }
+                        Err(e) => {
+                            eprintln!("  ⚠ SMDL parse failed for {}: {}", comp_display_name, e);
                         }
                     }
                 }
@@ -349,6 +349,18 @@ fn extract_events_from_props(props: &[CanonicalAbstractProp]) -> Vec<CanonicalAb
     }).collect()
 }
 
+/// Populate extracted_parts from props that represent selectable sub-regions
+/// (children slots, renderable nodes).
+fn populate_extracted_parts(props: &[CanonicalAbstractProp]) -> Vec<ExtractedPart> {
+    props.iter()
+        .filter(|prop| matches!(prop.abstract_type, AbstractPropType::Renderable))
+        .map(|prop| ExtractedPart {
+            name: prop.canonical_name.clone(),
+            selectable: true,
+        })
+        .collect()
+}
+
 fn unify_rust_component(raw: &rust_ast::RawComponentExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
     let props: Vec<CanonicalAbstractProp> = raw.props.iter().map(|rp| {
         let cam_type = map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any);
@@ -369,6 +381,7 @@ fn unify_rust_component(raw: &rust_ast::RawComponentExtraction, file_path: &str)
 
     let confidence = compute_confidence(&props, BASE_CONFIDENCE_RUST);
     let events = extract_events_from_props(&props);
+    let extracted_parts = populate_extracted_parts(&props);
     let props_with_confidence: Vec<_> = props.into_iter().map(|mut p| { p.confidence = confidence; p }).collect();
 
     Ok(CanonicalAbstractComponent {
@@ -380,7 +393,7 @@ fn unify_rust_component(raw: &rust_ast::RawComponentExtraction, file_path: &str)
         props: props_with_confidence,
         events,
         extracted_state_machine: None,
-        extracted_parts: vec![],
+        extracted_parts,
         source_repos: vec![SourceAttribution {
             repo_url: "local".to_string(),
             file_path: file_path.to_string(),
@@ -413,6 +426,7 @@ fn unify_tsx_component(raw: &tsx_ast::RawTsxExtraction, file_path: &str) -> Resu
 
     let confidence = compute_confidence(&props, BASE_CONFIDENCE_TSX);
     let events = extract_events_from_props(&props);
+    let extracted_parts = populate_extracted_parts(&props);
     let props_with_confidence: Vec<_> = props.into_iter().map(|mut p| { p.confidence = confidence; p }).collect();
 
     Ok(CanonicalAbstractComponent {
@@ -424,7 +438,7 @@ fn unify_tsx_component(raw: &tsx_ast::RawTsxExtraction, file_path: &str) -> Resu
         props: props_with_confidence,
         events,
         extracted_state_machine: None,
-        extracted_parts: vec![],
+        extracted_parts,
         source_repos: vec![SourceAttribution {
             repo_url: "local".to_string(),
             file_path: file_path.to_string(),
@@ -465,13 +479,14 @@ where F: FnMut(&std::path::Path) -> Result<()>,
         if path.is_dir() {
             if !is_root {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with('.') || ["node_modules", "target", "dist", "build", ".git"].contains(&name) {
+                    if name.starts_with('.')
+                        || ["node_modules", "target", "dist", "build", ".git"].contains(&name) {
                         return Ok(());
                     }
                 }
             }
             for entry in std::fs::read_dir(path)? {
-                visit(&entry?.path(), callback, false)?;
+                visit(&entry.path(), callback, false)?;
             }
         } else if path.is_file() {
             callback(path)?;
@@ -482,28 +497,28 @@ where F: FnMut(&std::path::Path) -> Result<()>,
     visit(root, &mut callback, true)
 }
 
-impl SynthesisOutput { 
-    /// Load a synthesis output from a JSON file. 
-    pub fn load_from_file(path: &std::path::Path) -> Result<Self> { 
-        let content = std::fs::read_to_string(path) 
-            .map_err(|e| ucp_core::UcpError::Io(e))?; 
-        serde_json::from_str(&content) 
-            .map_err(|e| ucp_core::UcpError::Json(e)) 
-    } 
- 
-    /// Save the synthesis output as pretty-printed JSON. 
-    pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> { 
-        let json = serde_json::to_string_pretty(self) 
-            .map_err(|e| ucp_core::UcpError::Json(e))?; 
-        if let Some(parent) = path.parent() { 
-            std::fs::create_dir_all(parent) 
-                .map_err(|e| ucp_core::UcpError::Io(e))?; 
-        } 
-        std::fs::write(path, json) 
-            .map_err(|e| ucp_core::UcpError::Io(e))?; 
-        Ok(()) 
-    } 
-} 
+impl SynthesisOutput {
+    /// Load a synthesis output from a JSON file.
+    pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| ucp_core::UcpError::Io(e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| ucp_core::UcpError::Json(e))
+    }
+
+    /// Save the synthesis output as pretty-printed JSON.
+    pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| ucp_core::UcpError::Json(e))?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ucp_core::UcpError::Io(e))?;
+        }
+        std::fs::write(path, json)
+            .map_err(|e| ucp_core::UcpError::Io(e))?;
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {
