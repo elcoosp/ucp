@@ -2,5 +2,6 @@ pub mod curation;
 pub mod discovery;
 pub mod extract;
 pub mod llm;
+pub mod pipeline;
 pub mod security;
 pub mod unify;

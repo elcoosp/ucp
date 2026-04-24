@@ -2340,6 +2340,7 @@ dependencies = [
  "serde_json",
  "spdx",
  "syn",
+ "tempfile",
  "tokio",
  "tokio-test",
  "ucp-core",

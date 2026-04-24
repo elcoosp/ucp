@@ -7,13 +7,9 @@ const ALLOWED_LICENSES: &[&str] = &[
 ];
 
 pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
-    // Validate that the expression is valid SPDX syntax
     let _expr = spdx::Expression::parse(license_str)
         .map_err(|e| UcpError::License(format!("Invalid SPDX: {}", e)))?;
 
-    // Extract license identifiers from the raw string using regex.
-    // SPDX IDs are alphanumeric plus dots, pluses, and dashes.
-    // We skip operator keywords (AND, OR, WITH).
     let re = Regex::new(r"[A-Za-z0-9.+-]+").unwrap();
     for cap in re.captures_iter(license_str) {
         let id = cap.get(0).unwrap().as_str();
@@ -33,16 +29,25 @@ pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
     Ok(())
 }
 
+/// Check if a file path is safe to parse (not credentials, secrets, etc.).
+/// Checks path components for "src" or "components" instead of string prefix,
+/// so it works for both relative and absolute paths.
 pub fn is_path_safe_to_parse(path: &str) -> bool {
     let path = std::path::Path::new(path);
     let path_str = path.to_string_lossy().replace("\\", "/");
 
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        if ["env", "pem", "key"].contains(&ext.to_lowercase().as_str()) { return false; }
+        if ["env", "pem", "key"].contains(&ext.to_lowercase().as_str()) {
+            return false;
+        }
     }
     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-        if ["credentials", "secret"].contains(&stem.to_lowercase().as_str()) { return false; }
+        if ["credentials", "secret"].contains(&stem.to_lowercase().as_str()) {
+            return false;
+        }
     }
 
-    path_str.starts_with("src/") || path_str.starts_with("components/")
+    // Check for "src" or "components" as path components anywhere in the path.
+    // This works for both relative ("src/foo.rs") and absolute ("/tmp/x/src/foo.rs") paths.
+    path_str.split('/').any(|part| part == "src" || part == "components")
 }
