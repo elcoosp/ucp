@@ -23,10 +23,10 @@ pub async fn find_shadcn_repos(query: &str, base_url: &str) -> Result<Vec<Discov
         .map_err(|e| ucp_core::UcpError::Http(format!("GitHub API request failed: {}", e)))?;
 
     Ok(page.items.into_iter().map(|repo: octocrab::models::Repository| {
-        let spdx_id = repo.license.as_ref().map(|l| {
+        let spdx_id = repo.license.as_ref().and_then(|l| {
             let id = l.spdx_id.clone();
             if id.is_empty() { None } else { Some(id) }
-        }).flatten();
+        });
         DiscoveredRepo {
             full_name: repo.full_name.unwrap_or_default(),
             html_url: repo.html_url.map(|u| u.to_string()).unwrap_or_default(),

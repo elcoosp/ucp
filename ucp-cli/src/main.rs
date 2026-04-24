@@ -1,8 +1,6 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(
@@ -88,7 +86,7 @@ async fn cmd_bootstrap(
         dry_run,
     };
 
-    let output = ucp_synthesizer::pipeline::run_pipeline_with_options(&source_dir, &opts)
+    let output = ucp_synthesizer::pipeline::run_pipeline_with_options(source_dir, &opts)
         .await
         .context("Pipeline failed")?;
 
@@ -110,7 +108,7 @@ async fn cmd_bootstrap(
     Ok(())
 }
 
-fn cmd_validate(spec: &PathBuf) -> anyhow::Result<()> {
+fn cmd_validate(spec: &Path) -> anyhow::Result<()> {
     println!("📄 Validating {}...", spec.display());
     let output = ucp_synthesizer::pipeline::SynthesisOutput::load_from_file(spec)
         .context("Failed to load spec")?;
@@ -130,7 +128,7 @@ fn cmd_validate(spec: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn cmd_merge(inputs: &[PathBuf], output: &PathBuf, html_dir: &str) -> anyhow::Result<()> {
+fn cmd_merge(inputs: &[PathBuf], output: &Path, html_dir: &str) -> anyhow::Result<()> {
     println!("🔗 Merging {} spec(s)...", inputs.len());
 
     let mut specs = Vec::new();
@@ -171,7 +169,7 @@ fn cmd_merge(inputs: &[PathBuf], output: &PathBuf, html_dir: &str) -> anyhow::Re
     Ok(())
 }
 
-fn cmd_components(spec: &PathBuf, verbose: bool, filter: &Option<String>) -> anyhow::Result<()> {
+fn cmd_components(spec: &Path, verbose: bool, filter: &Option<String>) -> anyhow::Result<()> {
     let output = ucp_synthesizer::pipeline::SynthesisOutput::load_from_file(spec)
         .context("Failed to load spec")?;
 
@@ -181,7 +179,7 @@ fn cmd_components(spec: &PathBuf, verbose: bool, filter: &Option<String>) -> any
         .filter(|c| {
             filter
                 .as_ref()
-                .map_or(true, |f| c.id.to_lowercase().contains(&f.to_lowercase()))
+                .is_none_or(|f| c.id.to_lowercase().contains(&f.to_lowercase()))
         })
         .collect();
 

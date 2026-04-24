@@ -63,6 +63,6 @@ pub fn is_path_safe_to_parse(path: &str) -> bool {
         component
             .as_os_str()
             .to_str()
-            .map_or(false, |s| s == "src" || s == "components")
+            .is_some_and(|s| s == "src" || s == "components")
     })
 }

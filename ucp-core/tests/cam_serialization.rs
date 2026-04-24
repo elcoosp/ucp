@@ -1,5 +1,4 @@
 use ucp_core::cam::*;
-use serde_json;
 
 #[test]
 fn serialize_canonical_abstract_prop_controlled_value() {

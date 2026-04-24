@@ -74,7 +74,7 @@ fn deduplicate_components(
 
     let mut result = Vec::new();
 
-    for (_hash, indices) in &groups {
+    for indices in groups.values() {
         let first_idx = indices[0];
         // Clone the base so we don't hold a mutable borrow into `components`
         // while we also need to read from other indices.
@@ -199,7 +199,7 @@ fn detect_cross_spec_conflicts(
     let mut total_conflicts = 0usize;
 
     // --- Inter-component conflicts (same purpose hash, multiple components) ---
-    for (_hash, indices) in &hash_groups {
+    for indices in hash_groups.values() {
         if indices.len() <= 1 { continue; }
 
         let mut prop_entries: HashMap<String, Vec<usize>> = HashMap::new();
@@ -493,8 +493,6 @@ mod tests {
 
     #[test]
     fn dedup_merges_events() {
-        // Both Form components must share the same prop so they produce the
-        // same purpose hash and get deduplicated together.
         let mut comp_a = make_component("Form", "data", AbstractPropType::Any);
         comp_a.events = vec![CanonicalAbstractEvent {
             canonical_name: "Submit".to_string(),

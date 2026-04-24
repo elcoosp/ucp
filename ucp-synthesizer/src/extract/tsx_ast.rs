@@ -23,26 +23,23 @@ pub struct RawTsxPropExtraction {
 /// - Nested object types (e.g. `theme: { primary: string }`)
 /// - Generic interfaces (e.g. `interface TableProps<T> { ... }`)
 /// - Both `export const X =` and `export function X(` component forms
+/// - `export default function X(` named default exports
 pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
     let mut components = Vec::new();
     let mut current_props: Vec<RawTsxPropExtraction> = Vec::new();
     let mut in_block = false;
     let mut brace_depth = 0usize;
     let mut block_buffer = String::new();
-    let mut current_line = 0usize;
 
-    for line in code.lines() {
-        current_line += 1;
+    for (current_line, line) in code.lines().enumerate() {
         let trimmed = line.trim();
 
         // --- Detect start of interface/type block ---
-        if !in_block {
-            if is_props_declaration(trimmed) {
-                in_block = true;
-                brace_depth = 0;
-                block_buffer.clear();
-                current_props.clear();
-            }
+        if !in_block && is_props_declaration(trimmed) {
+            in_block = true;
+            brace_depth = 0;
+            block_buffer.clear();
+            current_props.clear();
         }
 
         // --- Accumulate block content with brace tracking ---
@@ -70,13 +67,13 @@ pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
             continue;
         }
 
-        // --- Detect component export (const or function) ---
+        // --- Detect component export (const, function, or default) ---
         if is_component_export(trimmed) {
             if let Some(name) = extract_component_name(trimmed) {
                 if !name.is_empty() {
                     components.push(RawTsxExtraction {
                         name: name.to_string(),
-                        line_start: current_line,
+                        line_start: current_line + 1,
                         props: current_props.clone(),
                     });
                     current_props.clear();
@@ -97,12 +94,15 @@ fn is_props_declaration(line: &str) -> bool {
     (is_interface || is_type) && line.contains("Props") && line.contains('{')
 }
 
-/// Check if a line is a component export (const arrow or function).
+/// Check if a line is a component export (const arrow, function, or named default).
 fn is_component_export(line: &str) -> bool {
     let is_const = line.starts_with("export const") || line.starts_with("const");
     let is_fn = line.starts_with("export function") || line.starts_with("function");
+    let is_default = line.starts_with("export default");
 
-    (is_const && line.contains("=>")) || (is_fn && line.contains('('))
+    (is_const && line.contains("=>"))
+        || (is_fn && line.contains('('))
+        || (is_default && (line.contains("=>") || line.contains('(')))
 }
 
 /// Extract everything between the first `{` and the last `}` in a block.
@@ -185,7 +185,7 @@ fn parse_single_prop(segment: &str, props: &mut Vec<RawTsxPropExtraction>) {
     if !prop_name
         .chars()
         .next()
-        .map_or(false, |c| c.is_alphabetic() || c == '_')
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
     {
         return;
     }
@@ -220,9 +220,25 @@ fn find_prop_colon(s: &str) -> Option<usize> {
     None
 }
 
-/// Extract the component name from `export const Name = ...` or
-/// `export function Name(...)` lines.
+/// Extract the component name from various export forms.
+///
+/// - `export const Name = ...` → `Name`
+/// - `const Name = ...` → `Name`
+/// - `export function Name(...)` → `Name`
+/// - `function Name(...)` → `Name`
+/// - `export default function Name(...)` → `Name`
+/// - `export default (...)` / `export default () => ...` → `None` (anonymous)
 fn extract_component_name(line: &str) -> Option<&str> {
+    // Handle named default exports: `export default function X`
+    if line.starts_with("export default function") {
+        let rest = line.strip_prefix("export default function")?;
+        return rest
+            .trim()
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .next()
+            .filter(|n| !n.is_empty());
+    }
+
     let rest = line
         .strip_prefix("export const")
         .or_else(|| line.strip_prefix("const"))

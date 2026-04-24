@@ -248,3 +248,39 @@ export const Badge = (props: BadgeProps) => null;
     assert!(components[0].line_start > 0);
     assert_eq!(components[0].line_start, 5);
 }
+
+#[test]
+fn extract_default_function_component() {
+    let code = r#"
+export interface AlertProps {
+  message: string;
+  visible?: boolean;
+}
+export default function Alert(props: AlertProps) {
+  return <div>{props.message}</div>;
+}
+"#;
+    let components = extract_tsx_components(code).unwrap();
+    assert_eq!(components.len(), 1);
+    assert_eq!(components[0].name, "Alert");
+    assert_eq!(components[0].props.len(), 2);
+
+    let message = components[0].props.iter().find(|p| p.name == "message").unwrap();
+    assert!(!message.is_optional);
+
+    let visible = components[0].props.iter().find(|p| p.name == "visible").unwrap();
+    assert!(visible.is_optional);
+}
+
+#[test]
+fn extract_default_arrow_skips_anonymous() {
+    let code = r#"
+export interface AlertProps {
+  message: string;
+}
+export default (props: AlertProps) => <div>{props.message}</div>;
+"#;
+    let components = extract_tsx_components(code).unwrap();
+    // Anonymous default exports have no extractable name — skipped
+    assert_eq!(components.len(), 0);
+}

@@ -67,7 +67,7 @@ pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions)
         let path_str = path.to_string_lossy().to_string();
         let ext = path.extension().and_then(|e| e.to_str());
 
-        if !matches!(ext, Some("rs") | Some("tsx") | Some("ts")) {
+        if !matches!(ext, Some("rs") | Some("tsx") | Some("ts") | Some("jsx")) {
             return Ok(());
         }
 
@@ -77,7 +77,7 @@ pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions)
 
         files_scanned += 1;
         let content = std::fs::read_to_string(path)
-            .map_err(|e| ucp_core::UcpError::Io(e))?;
+            .map_err(ucp_core::UcpError::Io)?;
         source_map.insert(path_str.clone(), content.clone());
 
         match ext {
@@ -91,7 +91,7 @@ pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions)
                     Err(e) => eprintln!("  ⚠ Skipping {}: {}", path.display(), e),
                 }
             }
-            Some("tsx") | Some("ts") => {
+            Some("tsx") | Some("ts") | Some("jsx") => {
                 match tsx_ast::extract_tsx_components(&content) {
                     Ok(components) if !components.is_empty() => {
                         tsx_extractions.insert(path_str, components);
@@ -136,7 +136,7 @@ pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions)
                 eprintln!("   ⚠ LLM enrichment returned partial results");
             }
         } else {
-            println!("   ℹ️ No Ollama URL provided, skipping LLM enrichment");
+            println!("   ℹ️ Dry run mode, skipping LLM enrichment");
         }
     }
 
@@ -274,7 +274,7 @@ fn detect_conflicts(components: &mut [CanonicalAbstractComponent]) {
 
     let mut conflict_id_counter = 0u32;
 
-    for (_purpose_hash, indices) in &hash_groups {
+    for indices in hash_groups.values() {
         if indices.len() <= 1 { continue; }
 
         let mut prop_entries: HashMap<String, Vec<usize>> = HashMap::new();
@@ -501,21 +501,21 @@ impl SynthesisOutput {
     /// Load a synthesis output from a JSON file.
     pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| ucp_core::UcpError::Io(e))?;
+            .map_err(ucp_core::UcpError::Io)?;
         serde_json::from_str(&content)
-            .map_err(|e| ucp_core::UcpError::Json(e))
+            .map_err(ucp_core::UcpError::Json)
     }
 
     /// Save the synthesis output as pretty-printed JSON.
     pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
         let json = serde_json::to_string_pretty(self)
-            .map_err(|e| ucp_core::UcpError::Json(e))?;
+            .map_err(ucp_core::UcpError::Json)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| ucp_core::UcpError::Io(e))?;
+                .map_err(ucp_core::UcpError::Io)?;
         }
         std::fs::write(path, json)
-            .map_err(|e| ucp_core::UcpError::Io(e))?;
+            .map_err(ucp_core::UcpError::Io)?;
         Ok(())
     }
 }
