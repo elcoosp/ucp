@@ -41,9 +41,9 @@ pub fn merge_specs(specs: &[SynthesisOutput]) -> Result<SynthesisOutput> {
     }
 
     // Phase 1: Deduplicate by purpose hash, merge props, combine attributions
-    let deduped = deduplicate_components(&mut all_components);
+    let mut deduped = deduplicate_components(&mut all_components);
 
-    // Phase 2: Detect cross-spec conflicts between equivalent components
+    // Phase 2: Detect conflicts (inter-component and intra-component)
     let conflicts_detected = detect_cross_spec_conflicts(&mut deduped);
 
     let components_found = deduped.len();
@@ -76,21 +76,48 @@ fn deduplicate_components(
 
     for (_hash, indices) in &groups {
         let first_idx = indices[0];
-        let base = &mut components[*first_idx].1;
+        // Clone the base so we don't hold a mutable borrow into `components`
+        // while we also need to read from other indices.
+        let mut base = components[first_idx].1.clone();
+
+        // Collect merge data from other components (immutable borrows only).
+        let mut other_props_list: Vec<Vec<CanonicalAbstractProp>> = Vec::new();
+        let mut other_events_list: Vec<Vec<CanonicalAbstractEvent>> = Vec::new();
+        let mut other_source_repos: Vec<SourceAttribution> = Vec::new();
+        let mut fallback_state_machine: Option<StateMachine> = None;
+        let mut fallback_parts: Vec<ExtractedPart> = Vec::new();
 
         for &idx in &indices[1..] {
             let other = &components[idx].1;
-            merge_props_into(&mut base.props, &other.props, &other.source_repos);
-            merge_events_into(&mut base.events, &other.events);
+            other_props_list.push(other.props.clone());
+            other_events_list.push(other.events.clone());
+            other_source_repos.extend(other.source_repos.clone());
 
-            if base.extracted_state_machine.is_none() && other.extracted_state_machine.is_some() {
-                base.extracted_state_machine = other.extracted_state_machine.clone();
+            if fallback_state_machine.is_none() && other.extracted_state_machine.is_some() {
+                fallback_state_machine = other.extracted_state_machine.clone();
             }
-            if base.extracted_parts.is_empty() && !other.extracted_parts.is_empty() {
-                base.extracted_parts = other.extracted_parts.clone();
+            if fallback_parts.is_empty() && !other.extracted_parts.is_empty() {
+                fallback_parts = other.extracted_parts.clone();
             }
         }
 
+        // Apply merges to the local clone (no borrow conflict).
+        for other_props in &other_props_list {
+            merge_props_into(&mut base.props, other_props);
+        }
+        for other_events in &other_events_list {
+            merge_events_into(&mut base.events, other_events);
+        }
+        base.source_repos.extend(other_source_repos);
+
+        if base.extracted_state_machine.is_none() {
+            base.extracted_state_machine = fallback_state_machine;
+        }
+        if base.extracted_parts.is_empty() {
+            base.extracted_parts = fallback_parts;
+        }
+
+        // Find best (shortest) name across all grouped components.
         let best_name = indices
             .iter()
             .map(|&idx| {
@@ -106,7 +133,7 @@ fn deduplicate_components(
             .to_string();
 
         base.id = format!("unified:{}", best_name);
-        result.push(base.clone());
+        result.push(base);
     }
 
     result
@@ -115,7 +142,6 @@ fn deduplicate_components(
 fn merge_props_into(
     base_props: &mut Vec<CanonicalAbstractProp>,
     other_props: &[CanonicalAbstractProp],
-    other_sources: &[SourceAttribution],
 ) {
     let mut existing_names: HashMap<String, usize> = HashMap::new();
     for (i, prop) in base_props.iter().enumerate() {
@@ -132,6 +158,10 @@ fn merge_props_into(
                 base_props[base_idx]
                     .sources
                     .extend(other_prop.sources.iter().cloned());
+            } else {
+                // Type mismatch: push as a separate prop entry so conflict
+                // detection can flag it later.
+                base_props.push(other_prop.clone());
             }
         } else {
             base_props.push(other_prop.clone());
@@ -168,6 +198,7 @@ fn detect_cross_spec_conflicts(
     let mut conflict_id_counter = 0u32;
     let mut total_conflicts = 0usize;
 
+    // --- Inter-component conflicts (same purpose hash, multiple components) ---
     for (_hash, indices) in &hash_groups {
         if indices.len() <= 1 { continue; }
 
@@ -223,6 +254,47 @@ fn detect_cross_spec_conflicts(
                     });
                     total_conflicts += 1;
                 }
+            }
+        }
+    }
+
+    // --- Intra-component conflicts (same prop name, different type within one component) ---
+    for comp in components.iter_mut() {
+        let mut prop_groups: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, prop) in comp.props.iter().enumerate() {
+            prop_groups.entry(prop.canonical_name.clone()).or_default().push(i);
+        }
+
+        for (prop_name, prop_indices) in &prop_groups {
+            if prop_indices.len() <= 1 { continue; }
+
+            let mut type_variants: Vec<String> = prop_indices.iter().map(|&i| {
+                format!("{:?}", comp.props[i].abstract_type)
+            }).collect();
+            type_variants.sort();
+            type_variants.dedup();
+
+            if type_variants.len() <= 1 { continue; }
+
+            conflict_id_counter += 1;
+            let conflict_id = format!("intra_{:03}", conflict_id_counter);
+
+            let present_in: Vec<String> = comp.source_repos.iter()
+                .map(|s| s.file_path.clone())
+                .collect();
+            let confidence = 0.7;
+            let resolution = ResolutionStrategy::IncludeMajority;
+
+            for &i in prop_indices {
+                comp.props[i].conflicts.push(Conflict {
+                    id: conflict_id.clone(),
+                    field: format!("props.{}", prop_name),
+                    present_in: present_in.clone(),
+                    absent_in: vec![],
+                    confidence,
+                    resolution_suggestion: resolution.clone(),
+                });
+                total_conflicts += 1;
             }
         }
     }
@@ -382,7 +454,7 @@ mod tests {
 
     #[test]
     fn dedup_keeps_state_machine_from_other() {
-        let mut comp_a = make_component("Dialog", "open", AbstractPropType::ControlFlag);
+        let comp_a = make_component("Dialog", "open", AbstractPropType::ControlFlag);
         let mut comp_b = make_component("Dialog", "open", AbstractPropType::ControlFlag);
         comp_b.extracted_state_machine = Some(StateMachine {
             id: "dialog-sm".to_string(),
@@ -404,7 +476,7 @@ mod tests {
 
     #[test]
     fn dedup_keeps_extracted_parts_from_other() {
-        let mut comp_a = make_component("Card", "children", AbstractPropType::Renderable);
+        let comp_a = make_component("Card", "children", AbstractPropType::Renderable);
         let mut comp_b = make_component("Card", "children", AbstractPropType::Renderable);
         comp_b.extracted_parts = vec![ExtractedPart { name: "children".to_string(), selectable: true }];
         let spec1 = SynthesisOutput {
@@ -421,12 +493,14 @@ mod tests {
 
     #[test]
     fn dedup_merges_events() {
-        let mut comp_a = make_component("Form", "on_submit", AbstractPropType::AsyncEventHandler(vec![]));
+        // Both Form components must share the same prop so they produce the
+        // same purpose hash and get deduplicated together.
+        let mut comp_a = make_component("Form", "data", AbstractPropType::Any);
         comp_a.events = vec![CanonicalAbstractEvent {
             canonical_name: "Submit".to_string(),
             abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),
         }];
-        let mut comp_b = make_component("Form", "on_reset", AbstractPropType::AsyncEventHandler(vec![]));
+        let mut comp_b = make_component("Form", "data", AbstractPropType::Any);
         comp_b.events = vec![CanonicalAbstractEvent {
             canonical_name: "Reset".to_string(),
             abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),

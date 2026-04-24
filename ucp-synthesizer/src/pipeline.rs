@@ -204,9 +204,9 @@ async fn enrich_components_with_llm(
                                     comp.extracted_state_machine = Some(machine);
                                 }
                             }
-                        }
-                        Err(e) => {
-                            eprintln!("  ⚠ SMDL parse failed for {}: {}", comp_display_name, e);
+                            Err(e) => {
+                                eprintln!("  ⚠ SMDL parse failed for {}: {}", comp_display_name, e);
+                            }
                         }
                     }
                 }
@@ -486,7 +486,7 @@ where F: FnMut(&std::path::Path) -> Result<()>,
                 }
             }
             for entry in std::fs::read_dir(path)? {
-                visit(&entry.path(), callback, false)?;
+                visit(&entry?.path(), callback, false)?;
             }
         } else if path.is_file() {
             callback(path)?;

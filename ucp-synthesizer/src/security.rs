@@ -51,6 +51,13 @@ pub fn is_path_safe_to_parse(path: &str) -> bool {
         }
     }
 
+    // Reject hidden files (filenames starting with '.')
+    if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+        if file_name.starts_with('.') {
+            return false;
+        }
+    }
+
     // Require "src" or "components" as a path component anywhere in the path.
     path.components().any(|component| {
         component
