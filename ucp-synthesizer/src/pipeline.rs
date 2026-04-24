@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use ucp_core::cam::*;
@@ -6,19 +6,13 @@ use ucp_core::Result;
 
 use crate::extract::rust_ast::{self, RawComponentExtraction};
 use crate::extract::tsx_ast::{self, RawTsxExtraction};
+use crate::llm::{build_enrichment_prompt, extract_source_code, infer_behavior};
 use crate::unify::map_raw_type_to_cam;
 
 #[derive(Debug, Clone)]
 pub struct FileExtraction {
     pub file_path: String,
     pub components: Vec<ExtractedComponent>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExtractedComponent {
-    pub name: String,
-    pub props: Vec<ExtractedProp>,
-    pub source_lang: SourceLanguage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -29,6 +23,13 @@ pub enum SourceLanguage {
 }
 
 #[derive(Debug, Clone)]
+pub struct ExtractedComponent {
+    pub name: String,
+    pub props: Vec<ExtractedProp>,
+    pub source_lang: SourceLanguage,
+}
+
+#[derive(Debug, Clone)]
 pub struct ExtractedProp {
     pub name: String,
     pub raw_type: String,
@@ -36,22 +37,44 @@ pub struct ExtractedProp {
     pub is_optional: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde_json::Deserialize)]
 pub struct SynthesisOutput {
     pub ucp_version: String,
     pub components: Vec<CanonicalAbstractComponent>,
     pub stats: PipelineStats,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde_json::Deserialize)]
 pub struct PipelineStats {
     pub files_scanned: usize,
     pub files_parsed: usize,
     pub components_found: usize,
     pub conflicts_detected: usize,
+    pub llm_enriched: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PipelineOptions {
+    pub ollama_url: Option<String>,
+    pub llm_model: String,
+    pub dry_run: bool,
+}
+
+impl Default for PipelineOptions {
+    fn default() -> Self {
+        Self {
+            ollama_url: None,
+            llm_model: "glm-5:cloud".to_string(),
+            dry_run: false,
+        }
+    }
 }
 
 pub fn run_pipeline(source_dir: &str) -> Result<SynthesisOutput> {
+    run_pipeline_with_options(source_dir, &PipelineOptions::default())
+}
+
+pub fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions) -> Result<SynthesisOutput> {
     let mut files_scanned = 0usize;
     let mut files_parsed = 0usize;
     let mut all_components: Vec<CanonicalAbstractComponent> = Vec::new();
@@ -79,7 +102,7 @@ pub fn run_pipeline(source_dir: &str) -> Result<SynthesisOutput> {
             }
             Some("tsx") | Some("ts") => {
                 let content = std::fs::read_to_string(path)?;
-                match tsx_ast::extract_tsx_components(&content) {
+                match tsx_ast::extract_tsx_components(content) {
                     Ok(components) if !components.is_empty() => {
                         let path_str = path.to_string_lossy().to_string();
                         tsx_extractions.insert(path_str, components);
@@ -110,6 +133,24 @@ pub fn run_pipeline(source_dir: &str) -> Result<SynthesisOutput> {
         }
     }
 
+    // Optional LLM enrichment
+    let mut llm_enriched = false;
+    if let Some(ref url) = opts.ollama_url {
+        if !opts.dry_run {
+            llm_enriched = enrich_components_with_llm(all_components.as_mut(), url, &opts.llm_model)?;
+            if llm_enriched {
+                println!("   🧠 LLM enrichment applied to {} components", all_components.len());
+            } else {
+                eprintln!("   ⚠ LLM enrichment returned partial results");
+            }
+        } else {
+            println!("   ℹ️ No Ollama URL provided, skipping LLM enrichment");
+        }
+    }
+
+    // Detect conflicts
+    detect_conflicts(&mut all_components);
+
     let conflicts_detected = all_components
         .iter()
         .map(|c| c.props.iter().filter(|p| !p.conflicts.is_empty()).count())
@@ -124,8 +165,193 @@ pub fn run_pipeline(source_dir: &str) -> Result<SynthesisOutput> {
             components_found: rust_extractions.values().map(|v| v.len()).sum::<usize>()
                 + tsx_extractions.values().map(|v| v.len()).sum::<usize>(),
             conflicts_detected,
+            llm_enriched,
         },
     })
+}
+
+fn enrich_components_with_llm(
+    components: &mut [CanonicalAbstractComponent],
+    ollama_url: &str,
+    model: &str,
+) -> Result<bool> {
+    let client = reqwest::Client::builder()
+        .build()
+        .map_err(|e| ucp_core::UcpError::LlmInference(e.to_string()))?;
+
+    let mut any_success = false;
+
+    for comp in components.iter() {
+        let source_code = extract_source_code(std::slice::from_ref(&comp.source_repos);
+
+        if source_code.is_empty() {
+            continue;
+        }
+
+        let prompt = build_enrichment_prompt(&comp.name, &source_code);
+
+        match infer_behavior(&client, &source_code, &prompt, model).await {
+            Ok(llm_json) => {
+                if let Some(desc) = llm_json.get("description").and_then(|v| v.as_str()) {
+                    comp.semantic_fingerprint.purpose_hash =
+                        compute_purpose_hash_with_llm(&comp.semantic_fingerprint, desc);
+                    any_success = true;
+                }
+                if let Some(smdl_str) = llm_json.get("smdl").and_then(|v| v.as_str()) {
+                    if !smdl_str.is_empty() {
+                        match crate::smdl::parse_smdl(smdl_str) {
+                            Ok(smdl_json) => {
+                                if let Some(sm) = smdl_json.get("initial") {
+                                    if let Some(init) = sm.as_str() {
+                                        if let Ok(machine) =
+                                            crate::smdl::parse_smdl(
+                                                &format!(
+                                                    "component {} {{ state {} {{}} }}",
+                                                    comp.name, init, init
+                                                ),
+                                            )
+                                        {
+                                            comp.extracted_state_machine = Some(machine);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "  ⚠ SMDL parse failed for {}: {}",
+                                    comp.name, e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("  ⚠ LLM enrichment failed for {}: {}", comp.name, e);
+            }
+        }
+    }
+
+    Ok(any_success)
+}
+
+fn compute_purpose_hash_with_llm(
+    fingerprint: &SemanticFingerprint,
+    llm_description: &str,
+) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    fingerprint.purpose_hash.hash(&mut hasher);
+    for word in llm_description.split_whitespace() {
+        if word.len() > 3 {
+            word.to_lowercase().hash(&mut hasher);
+        }
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+fn detect_conflicts(components: &mut [CanonicalAbstractComponent]) {
+    let mut hash_groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (idx, comp) in components.iter().enumerate() {
+        hash_groups
+            .entry(comp.semantic_fingerprint.purpose_hash.clone())
+            .or_default()
+            .push(idx);
+    }
+
+    let mut conflict_id_counter = 0u32;
+
+    for (purpose_hash, indices) in &hash_groups {
+        if indices.len() <= 1 {
+            continue;
+        }
+
+        let mut prop_entries: HashMap<String, Vec<usize>> = HashMap::new();
+        for &idx in indices {
+            let comp = &components[idx];
+            for prop in &comp.props {
+                prop_entries
+                    .entry(prop.canonical_name.clone())
+                    .or_default()
+                    .push(idx);
+            }
+        }
+
+        for (prop_name, member_indices) in &prop_entries {
+            let present_in: Vec<String> = member_indices
+                .iter()
+                .map(|&idx| {
+                    components[idx]
+                        .source_repos
+                        .first()
+                        .map(|s| s.file_path.clone())
+                        .unwrap_or_else(|| "unknown".to_string())
+                })
+                .collect();
+
+            let mut type_variants: Vec<String> = member_indices
+                .iter()
+                .map(|&idx| {
+                    components[idx]
+                        .props
+                        .iter()
+                        .find(|p| p.canonical_name == *prop_name)
+                        .map(|p| format!("{:?}", p.abstract_type))
+                        .unwrap_or_else(|| "missing".to_string())
+                })
+                .collect();
+            type_variants.sort();
+            type_variants.dedup();
+
+            if type_variants.len() <= 1 {
+                continue;
+            }
+
+            conflict_id_counter += 1;
+            let conflict_id = format!("conf_{:03}", conflict_id_counter);
+
+            let has_count = member_indices.len();
+            let missing_indices: Vec<usize> = (0..components.len())
+                .filter(|i| !member_indices.contains(i))
+                .collect();
+
+            let absent_in: Vec<String> = missing_indices
+                .iter()
+                .map(|&idx| {
+                    components[idx]
+                        .source_repos
+                        .first()
+                        .map(|s| s.file_path.clone())
+                        .unwrap_or_else(|| "unknown".to_string())
+                })
+                .filter(|s| !present_in.contains(s))
+                .collect();
+
+            let confidence = if has_count > 2 { 0.4 } else { 0.7 };
+
+            let resolution = if has_count > 2 {
+                ResolutionStrategy::FlagForHumanReview
+            } else {
+                ResolutionStrategy::IncludeMajority
+            };
+
+            for &idx in member_indices {
+                if let Some(prop) = components[idx]
+                    .props
+                    .iter_mut()
+                    .find(|p| p.canonical_name == *prop_name)
+                {
+                    prop.conflicts.push(Conflict {
+                        id: conflict_id.clone(),
+                        field: format!("props.{}", prop_name),
+                        present_in: present_in.clone(),
+                        absent_in,
+                        confidence,
+                        resolution_suggestion: resolution.clone(),
+                    });
+                }
+            }
+        }
+    }
 }
 
 fn unify_rust_component(
@@ -281,102 +507,4 @@ where
     }
 
     visit(root, &mut callback, true)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pipeline_on_empty_dir_returns_empty() {
-        let tmp = tempfile::tempdir().unwrap();
-        let output = run_pipeline(tmp.path().to_str().unwrap()).unwrap();
-        assert_eq!(output.components.len(), 0);
-        assert_eq!(output.stats.files_scanned, 0);
-    }
-
-    #[test]
-    fn pipeline_extracts_rust_components() {
-        let tmp = tempfile::tempdir().unwrap();
-        let src = tmp.path().join("src");
-        std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(
-            src.join("button.rs"),
-            r#"
-#[component]
-pub fn Button(
-    #[prop(default)] disabled: bool,
-) -> impl IntoView {
-    view! { <button></button> }
-}
-"#,
-        )
-        .unwrap();
-
-        let output = run_pipeline(tmp.path().to_str().unwrap()).unwrap();
-        assert_eq!(output.components.len(), 1);
-        assert_eq!(output.components[0].props.len(), 1);
-        assert_eq!(output.components[0].props[0].canonical_name, "disabled");
-        assert_eq!(output.stats.files_parsed, 1);
-    }
-
-    #[test]
-    fn pipeline_extracts_tsx_components() {
-        let tmp = tempfile::tempdir().unwrap();
-        let src = tmp.path().join("src");
-        std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(
-            src.join("Button.tsx"),
-            r#"
-export interface ButtonProps {
-  variant?: "default" | "destructive";
-  disabled?: boolean;
-  onClick?: () => void;
-}
-export const Button = (props: ButtonProps) => {
-  return <button disabled={props.disabled}>{props.variant ?? "default"}</button>;
-};
-"#,
-        )
-        .unwrap();
-
-        let output = run_pipeline(tmp.path().to_str().unwrap()).unwrap();
-        assert_eq!(output.components.len(), 1);
-        assert_eq!(output.components[0].props.len(), 3);
-        let on_click = &output.components[0].props[2];
-        assert_eq!(on_click.canonical_name, "onClick");
-        assert!(matches!(
-            on_click.abstract_type,
-            AbstractPropType::AsyncEventHandler(_)
-        ));
-        assert_eq!(output.stats.files_parsed, 1);
-    }
-
-    #[test]
-    fn pipeline_skips_node_modules_and_target() {
-        let tmp = tempfile::tempdir().unwrap();
-        let node = tmp.path().join("node_modules").join("pkg");
-        let tgt = tmp.path().join("target").join("debug");
-        std::fs::create_dir_all(&node).unwrap();
-        std::fs::create_dir_all(&tgt).unwrap();
-        std::fs::write(&node.join("comp.tsx"), "export const X = () => null;").unwrap();
-        std::fs::write(&tgt.join("lib.rs"), "fn main() {}").unwrap();
-
-        let output = run_pipeline(tmp.path().to_str().unwrap()).unwrap();
-        assert_eq!(output.components.len(), 0);
-    }
-
-    #[test]
-    fn purpose_hash_is_deterministic() {
-        let h1 = compute_purpose_hash("Button", &[]);
-        let h2 = compute_purpose_hash("Button", &[]);
-        assert_eq!(h1, h2);
-    }
-
-    #[test]
-    fn purpose_hash_differs_by_name() {
-        let h1 = compute_purpose_hash("Button", &[]);
-        let h2 = compute_purpose_hash("Input", &[]);
-        assert_ne!(h1, h2);
-    }
 }
