@@ -17,13 +17,20 @@ pub fn build_ollama_payload(prompt: &str, model: &str) -> serde_json::Value {
     })
 }
 
-/// Infer behavior from a code string via local Ollama instance.
-pub async fn infer_behavior(client: &Client, code: &str, prompt: &str, model: &str) -> Result<serde_json::Value> {
+/// Infer behavior from a code string via Ollama instance at the given base URL.
+pub async fn infer_behavior(
+    client: &Client,
+    base_url: &str,
+    code: &str,
+    prompt: &str,
+    model: &str,
+) -> Result<serde_json::Value> {
+    let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
     let full_prompt = format!("{}\n\nCode:\n```rust\n{}\n```", prompt, code);
     let payload = build_ollama_payload(&full_prompt, model);
 
     let res: serde_json::Value = client
-        .post("http://localhost:11434/api/generate")
+        .post(&url)
         .json(&payload)
         .send()
         .await
