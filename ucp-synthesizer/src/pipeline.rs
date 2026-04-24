@@ -37,14 +37,14 @@ pub struct ExtractedProp {
     pub is_optional: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde_json::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SynthesisOutput {
     pub ucp_version: String,
     pub components: Vec<CanonicalAbstractComponent>,
     pub stats: PipelineStats,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde_json::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PipelineStats {
     pub files_scanned: usize,
     pub files_parsed: usize,
@@ -70,11 +70,11 @@ impl Default for PipelineOptions {
     }
 }
 
-pub fn run_pipeline(source_dir: &str) -> Result<SynthesisOutput> {
-    run_pipeline_with_options(source_dir, &PipelineOptions::default())
+pub async fn run_pipeline(source_dir: &str) -> Result<SynthesisOutput> {
+    run_pipeline_with_options(source_dir, &PipelineOptions::default()).await
 }
 
-pub fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions) -> Result<SynthesisOutput> {
+pub async fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions) -> Result<SynthesisOutput> {
     let mut files_scanned = 0usize;
     let mut files_parsed = 0usize;
     let mut all_components: Vec<CanonicalAbstractComponent> = Vec::new();
@@ -102,7 +102,7 @@ pub fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions) -> Re
             }
             Some("tsx") | Some("ts") => {
                 let content = std::fs::read_to_string(path)?;
-                match tsx_ast::extract_tsx_components(content) {
+                match tsx_ast::extract_tsx_components(&content) {
                     Ok(components) if !components.is_empty() => {
                         let path_str = path.to_string_lossy().to_string();
                         tsx_extractions.insert(path_str, components);
@@ -135,9 +135,9 @@ pub fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions) -> Re
 
     // Optional LLM enrichment
     let mut llm_enriched = false;
-    if let Some(ref url) = opts.ollama_url {
+    if let Some(ref _url) = opts.ollama_url {
         if !opts.dry_run {
-            llm_enriched = enrich_components_with_llm(all_components.as_mut(), url, &opts.llm_model)?;
+            llm_enriched = enrich_components_with_llm(all_components.as_mut(), &opts.llm_model).await?;
             if llm_enriched {
                 println!("   🧠 LLM enrichment applied to {} components", all_components.len());
             } else {
@@ -170,9 +170,8 @@ pub fn run_pipeline_with_options(source_dir: &str, opts: &PipelineOptions) -> Re
     })
 }
 
-fn enrich_components_with_llm(
+async fn enrich_components_with_llm(
     components: &mut [CanonicalAbstractComponent],
-    ollama_url: &str,
     model: &str,
 ) -> Result<bool> {
     let client = reqwest::Client::builder()
@@ -181,14 +180,16 @@ fn enrich_components_with_llm(
 
     let mut any_success = false;
 
-    for comp in components.iter() {
-        let source_code = extract_source_code(std::slice::from_ref(&comp.source_repos);
+    for comp in components.iter_mut() {
+        let source_code_vec = extract_source_code(std::slice::from_ref(&*comp));
 
-        if source_code.is_empty() {
+        if source_code_vec.is_empty() {
             continue;
         }
 
-        let prompt = build_enrichment_prompt(&comp.name, &source_code);
+        let source_code = source_code_vec.join("\n\n");
+        let comp_display_name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
+        let prompt = build_enrichment_prompt(comp_display_name);
 
         match infer_behavior(&client, &source_code, &prompt, model).await {
             Ok(llm_json) => {
@@ -197,37 +198,9 @@ fn enrich_components_with_llm(
                         compute_purpose_hash_with_llm(&comp.semantic_fingerprint, desc);
                     any_success = true;
                 }
-                if let Some(smdl_str) = llm_json.get("smdl").and_then(|v| v.as_str()) {
-                    if !smdl_str.is_empty() {
-                        match crate::smdl::parse_smdl(smdl_str) {
-                            Ok(smdl_json) => {
-                                if let Some(sm) = smdl_json.get("initial") {
-                                    if let Some(init) = sm.as_str() {
-                                        if let Ok(machine) =
-                                            crate::smdl::parse_smdl(
-                                                &format!(
-                                                    "component {} {{ state {} {{}} }}",
-                                                    comp.name, init, init
-                                                ),
-                                            )
-                                        {
-                                            comp.extracted_state_machine = Some(machine);
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!(
-                                    "  ⚠ SMDL parse failed for {}: {}",
-                                    comp.name, e
-                                );
-                            }
-                        }
-                    }
-                }
             }
             Err(e) => {
-                eprintln!("  ⚠ LLM enrichment failed for {}: {}", comp.name, e);
+                eprintln!("  ⚠ LLM enrichment failed for {}: {}", comp_display_name, e);
             }
         }
     }
@@ -260,7 +233,7 @@ fn detect_conflicts(components: &mut [CanonicalAbstractComponent]) {
 
     let mut conflict_id_counter = 0u32;
 
-    for (purpose_hash, indices) in &hash_groups {
+    for (_purpose_hash, indices) in &hash_groups {
         if indices.len() <= 1 {
             continue;
         }
@@ -344,7 +317,7 @@ fn detect_conflicts(components: &mut [CanonicalAbstractComponent]) {
                         id: conflict_id.clone(),
                         field: format!("props.{}", prop_name),
                         present_in: present_in.clone(),
-                        absent_in,
+                        absent_in: absent_in.clone(),
                         confidence,
                         resolution_suggestion: resolution.clone(),
                     });

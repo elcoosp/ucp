@@ -60,7 +60,7 @@ pub fn extract_source_code(components: &[ucp_core::cam::CanonicalAbstractCompone
 }
 
 /// Build a component enrichment prompt for the LLM.
-pub fn build_enrichment_prompt(component_name: &str, code: &str) -> String {
+pub fn build_enrichment_prompt(component_name: &str) -> String {
     format!(
         "Analyze this UI component named '{}' and return JSON with:\n\
          {{\n\
@@ -68,7 +68,6 @@ pub fn build_enrichment_prompt(component_name: &str, code: &str) -> String {
          \"smdl\": \"SMDL state machine definition or empty string if none\",\n\
          \"keywords\": [\"list\", \"of\", \"semantic\", \"keywords\"]\n\
          }}",
-        component_name,
-        code
+        component_name
     )
 }

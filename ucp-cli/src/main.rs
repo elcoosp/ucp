@@ -43,13 +43,15 @@ async fn main() -> anyhow::Result<()> {
         } => {
             println!("🔍 Scanning {}...", source_dir);
 
+            let dry_run = ollama_url.is_none();
             let opts = ucp_synthesizer::pipeline::PipelineOptions {
                 ollama_url,
                 llm_model,
-                dry_run: ollama_url.is_none(),
+                dry_run,
             };
 
             let output = ucp_synthesizer::pipeline::run_pipeline_with_options(&source_dir, &opts)
+                .await
                 .context("Pipeline failed")?;
 
             println!("   📁 Files scanned:   {}", output.stats.files_scanned);
