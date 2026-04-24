@@ -1,10 +1,10 @@
-use pest::iterators::Pairs;
 use pest::Parser;
+use pest_derive::Parser;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 #[derive(Parser)]
-#[grammar = "smdl.pest"]
+#[grammar = "src/smdl/smdl.pest"]
 pub struct SmdlParser;
 
 pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<Value> {
@@ -41,7 +41,7 @@ pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<Value> {
                             }
                         }
 
-                        transitions.insert(target, json!({
+                        transitions.insert(target.clone(), json!({
                             "target": target,
                             "sideEffects": effects
                         }));

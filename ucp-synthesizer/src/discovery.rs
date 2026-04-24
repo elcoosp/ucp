@@ -1,4 +1,3 @@
-use octocrab::params;
 use serde::{Deserialize, Serialize};
 use ucp_core::Result;
 
@@ -23,7 +22,7 @@ struct LicenseInfo {
 
 pub async fn find_shadcn_repos(query: &str, base_url: &str) -> Result<Vec<DiscoveredRepo>> {
     let octo = octocrab::Octocrab::builder()
-        .base_uri(base_url.trim_end_matches('/'))
+        .base_uri(base_url.trim_end_matches('/'))?
         .build()
         .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
 

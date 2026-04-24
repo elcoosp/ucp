@@ -1,5 +1,3 @@
-use biome_js_parser::parse_module;
-use biome_js_syntax::{AnyJsRoot, JsParserOptions};
 use ucp_core::Result;
 
 #[derive(Debug, Clone)]
@@ -16,27 +14,65 @@ pub struct RawTsxPropExtraction {
 }
 
 pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
-    let parsed = parse_module(code, JsParserOptions::default())
-        .map_err(|e| ucp_core::UcpError::Parsing(format!("TSX error: {}", e)))?;
-
     let mut components = Vec::new();
+    let mut current_props: Vec<RawTsxPropExtraction> = Vec::new();
+    let mut in_interface = false;
 
-    for item in parsed.syntax().children() {
-        if item.to_string().contains("export const") {
-            // Very basic heuristic for arrow functions in TSX
-            let text = item.to_string();
-            if text.contains("=>") {
-                // Try to isolate the function name
-                if let Some(name) = text.split("export const ").nth(1) {
-                    let name = name.split_whitespace().next().unwrap_or("");
-                    let clean_name = name.split(|c:char| c.is_ascii_alphanumeric() || c == '_').collect();
-                    components.push(RawTsxExtraction {
-                        name: clean_name,
-                        props: vec![RawTsxPropExtraction { name: "props".to_string(), raw_type: "Interface".to_string(), is_optional: false }],
+    for line in code.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("export interface") && trimmed.contains("Props") {
+            in_interface = true;
+            current_props.clear();
+            continue;
+        }
+
+        if in_interface {
+            if trimmed.starts_with("}") {
+                in_interface = false;
+                continue;
+            }
+            if let Some(colon_pos) = trimmed.find(':') {
+                let prop_part = &trimmed[..colon_pos];
+                let prop_name = prop_part.trim().trim_end_matches('?');
+                if !prop_name.is_empty()
+                    && prop_name
+                        .chars()
+                        .next()
+                        .map_or(false, |c| c.is_alphabetic() || c == '_')
+                {
+                    let is_optional = prop_part.trim().ends_with('?');
+                    let type_part = trimmed[colon_pos + 1..]
+                        .trim()
+                        .trim_end_matches(';')
+                        .trim()
+                        .to_string();
+                    current_props.push(RawTsxPropExtraction {
+                        name: prop_name.to_string(),
+                        raw_type: type_part,
+                        is_optional,
                     });
+                }
+            }
+            continue;
+        }
+
+        if trimmed.starts_with("export const") && trimmed.contains("=>") {
+            if let Some(name_part) = trimmed.strip_prefix("export const") {
+                let name = name_part
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()
+                    .unwrap_or("");
+                if !name.is_empty() {
+                    components.push(RawTsxExtraction {
+                        name: name.to_string(),
+                        props: current_props.clone(),
+                    });
+                    current_props.clear();
                 }
             }
         }
     }
+
     Ok(components)
 }

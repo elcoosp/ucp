@@ -19,10 +19,8 @@ fn extract_props_using_visitor_trait() {
     assert_eq!(btn.name, "Button");
 
     let variant_prop = btn.props.iter().find(|p| p.name == "variant").unwrap();
-    assert!(variant_prop.is_some());
-    assert!(variant_prop.unwrap().raw_type.contains("MaybeSignal"));
+    assert!(variant_prop.raw_type.contains("MaybeSignal"));
 
     let disabled_prop = btn.props.iter().find(|p| p.name == "disabled").unwrap();
-    assert!(disabled_prop.is_some());
-    assert!(disabled_prop.unwrap().has_default);
+    assert!(disabled_prop.has_default);
 }

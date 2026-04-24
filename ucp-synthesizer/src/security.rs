@@ -9,13 +9,17 @@ pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
     let expr = spdx::Expression::parse(license_str)
         .map_err(|e| UcpError::License(format!("Invalid SPDX: {}", e)))?;
 
-    let mut iter = expr.iter();
-    while let Some(req) = iter.next() {
-        let req_str = req.req.to_string();
-        if !ALLOWED_LICENSES.contains(&req_str.as_str()) {
+    for node in expr.iter() {
+        let node_str = node.to_string();
+        // Skip operator tokens (AND, OR, WITH, parens)
+        match node_str.as_str() {
+            "AND" | "OR" | "WITH" | "(" | ")" => continue,
+            _ => {}
+        }
+        if !ALLOWED_LICENSES.contains(&node_str.as_str()) {
             return Err(UcpError::License(format!(
                 "Rejected non-permissive license: {}. Allowed: {:?}",
-                req_str, ALLOWED_LICENSES
+                node_str, ALLOWED_LICENSES
             )));
         }
     }

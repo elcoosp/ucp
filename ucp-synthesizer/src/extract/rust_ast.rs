@@ -1,4 +1,4 @@
-use syn::{parse_file, visit::Visit, Item, ItemFn, FnArg, Pat, Meta};
+use syn::{parse_file, visit::Visit, ItemFn, FnArg, Pat, Meta};
 use ucp_core::Result;
 
 #[derive(Debug, Clone)]
@@ -26,11 +26,19 @@ impl Visit<'_> for ComponentVisitor {
 
         for input in &func.sig.inputs {
             if let FnArg::Typed(pat_type) = input {
-                let prop_name = if let Pat::Ident(pat_ident) = &pat_type.pat { pat_ident.ident.to_string() } else { continue };
+                let prop_name = if let Pat::Ident(pat_ident) = &*pat_type.pat {
+                    pat_ident.ident.to_string()
+                } else {
+                    continue;
+                };
 
                 let raw_type = format!("{:?}", &*pat_type.ty);
                 let has_default = func.attrs.iter().any(|attr| {
-                    if let Meta::List(list) = &attr.meta { list.path.is_ident("prop") && list.tokens.to_string().contains("default") } else { false }
+                    if let Meta::List(list) = &attr.meta {
+                        list.path.is_ident("prop") && list.tokens.to_string().contains("default")
+                    } else {
+                        false
+                    }
                 });
 
                 props.push(RawPropExtraction {
@@ -46,10 +54,10 @@ impl Visit<'_> for ComponentVisitor {
 }
 
 pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>> {
-    let ast = parse_file(code, Default::default())
+    let ast = parse_file(code)
         .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
 
     let mut visitor = ComponentVisitor(Vec::new());
-    syn::visit::visit_file(&ast, &mut visitor);
+    syn::visit::visit_file(&mut visitor, &ast);
     Ok(visitor.0)
 }

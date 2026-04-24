@@ -19,10 +19,39 @@ fn extract_props_from_react_tsx() {
 
     let btn = &components[0];
     assert_eq!(btn.name, "Button");
+    assert_eq!(btn.props.len(), 3);
 
-    let variant_prop = btn.props.iter().find(|p| p.name == "variant").unwrap();
-    assert!(variant_prop.is_some());
+    let variant = btn.props.iter().find(|p| p.name == "variant").unwrap();
+    assert!(variant.is_optional);
+    assert!(variant.raw_type.contains("default"));
 
-    let disabled_prop = btn.props.iter().find(|p| p.name == "disabled").unwrap();
-    assert!(disabled_prop.is_some());
+    let disabled = btn.props.iter().find(|p| p.name == "disabled").unwrap();
+    assert!(disabled.is_optional);
+    assert_eq!(disabled.raw_type, "boolean");
+
+    let on_click = btn.props.iter().find(|p| p.name == "onClick").unwrap();
+    assert!(on_click.is_optional);
+    assert!(on_click.raw_type.contains("void"));
+}
+
+#[test]
+fn extract_non_optional_props() {
+    let code = r#"
+export interface InputProps {
+  value: string;
+  label: string;
+}
+export const Input = (props: InputProps) => <input value={props.value} />;
+"#;
+    let components = extract_tsx_components(code).unwrap();
+    assert_eq!(components.len(), 1);
+    let input = &components[0];
+    assert_eq!(input.name, "Input");
+    assert!(!input.props.iter().any(|p| p.is_optional));
+}
+
+#[test]
+fn no_components_in_empty_code() {
+    let components = extract_tsx_components("").unwrap();
+    assert!(components.is_empty());
 }
