@@ -482,6 +482,29 @@ where F: FnMut(&std::path::Path) -> Result<()>,
     visit(root, &mut callback, true)
 }
 
+impl SynthesisOutput { 
+    /// Load a synthesis output from a JSON file. 
+    pub fn load_from_file(path: &std::path::Path) -> Result<Self> { 
+        let content = std::fs::read_to_string(path) 
+            .map_err(|e| ucp_core::UcpError::Io(e))?; 
+        serde_json::from_str(&content) 
+            .map_err(|e| ucp_core::UcpError::Json(e)) 
+    } 
+ 
+    /// Save the synthesis output as pretty-printed JSON. 
+    pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> { 
+        let json = serde_json::to_string_pretty(self) 
+            .map_err(|e| ucp_core::UcpError::Json(e))?; 
+        if let Some(parent) = path.parent() { 
+            std::fs::create_dir_all(parent) 
+                .map_err(|e| ucp_core::UcpError::Io(e))?; 
+        } 
+        std::fs::write(path, json) 
+            .map_err(|e| ucp_core::UcpError::Io(e))?; 
+        Ok(()) 
+    } 
+} 
+
 #[cfg(test)]
 mod tests {
     use super::*;

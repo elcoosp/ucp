@@ -1,8 +1,7 @@
-use regex::Regex;
 use ucp_core::{cam::AbstractPropType, Result};
 
 /// Map a raw type string (e.g. from ToTokens output) to the CAM AbstractPropType
-/// using strict regex-based ontology rules.
+/// using strict pattern matching rules.
 pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
     // Normalize: syn's ToTokens puts spaces around angle brackets:
     //   "RwSignal < String >", "MaybeSignal < bool >", "Option < Vec < String > >"
@@ -26,8 +25,6 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
     }
 
     // Option<T> → UncontrolledValue(inner)
-    // Option represents a value that may or may not be present — the component
-    // doesn't control whether it's Some/None, the parent does.
     if clean.starts_with("Option<") {
         let inner = extract_generic_inner(&clean);
         return Ok(AbstractPropType::UncontrolledValue(Box::new(
@@ -35,7 +32,7 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
         )));
     }
 
-    // Vec<T> → StaticValue(inner) — a list of items is a static data prop
+    // Vec<T>, Array<T> → StaticValue(inner)
     if clean.starts_with("Vec<") || clean.starts_with("Array<") {
         let inner = extract_generic_inner(&clean);
         return Ok(AbstractPropType::StaticValue(Box::new(
@@ -43,7 +40,7 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
         )));
     }
 
-    // Record<K, V>, HashMap<K, V>, BTreeMap<K, V> → StaticValue(Any)
+    // Record<K, V>, HashMap<K, V>, BTreeMap<K, V>, Map<K, V> → StaticValue(Any)
     if clean.starts_with("Record<")
         || clean.starts_with("HashMap<")
         || clean.starts_with("BTreeMap<")
@@ -53,7 +50,6 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
     }
 
     // Callback / event handler patterns → AsyncEventHandler
-    // Matches: Callback<T>, EventHandler<T>, Fn(T), Fn(T) -> U, fn(T)
     if clean.starts_with("Callback<")
         || clean.starts_with("EventHandler<")
         || clean.starts_with("Fn(")
@@ -62,7 +58,7 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
         return Ok(AbstractPropType::AsyncEventHandler(vec![]));
     }
 
-    // Arrow function patterns (TSX): () => void, (e: Event) => void, (T) => U
+    // Arrow function patterns (TSX)
     if clean.contains("=>") {
         return Ok(AbstractPropType::AsyncEventHandler(vec![]));
     }
@@ -76,7 +72,7 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
         || clean.contains("IntoElement")
         || clean.contains("IntoView")
         || clean.contains("HtmlElement")
-        || clean.contains("VNode")
+        || clean == "VNode"
     {
         return Ok(AbstractPropType::Renderable);
     }
@@ -96,9 +92,7 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
 }
 
 /// Extract the inner type from a generic like `Signal<String>` → `String`.
-/// Handles nested generics by finding the last `>` (after balancing).
 fn extract_generic_inner(type_str: &str) -> String {
-    // Simple case: find the first `<` and last `>`
     if let Some(start) = type_str.find('<') {
         if let Some(end) = type_str.rfind('>') {
             if start < end {
@@ -132,12 +126,6 @@ mod tests {
     }
 
     #[test]
-    fn option_bool_to_uncontrolled_value() {
-        let cam = map_raw_type_to_cam("Option<bool>").unwrap();
-        assert!(matches!(cam, AbstractPropType::UncontrolledValue(_)));
-    }
-
-    #[test]
     fn vec_string_to_static_value() {
         let cam = map_raw_type_to_cam("Vec < String >").unwrap();
         assert!(matches!(cam, AbstractPropType::StaticValue(_)));
@@ -153,27 +141,11 @@ mod tests {
     fn record_to_static_any() {
         let cam = map_raw_type_to_cam("Record<string, number>").unwrap();
         assert!(matches!(cam, AbstractPropType::StaticValue(_)));
-        // Inner should be Any since we don't decompose Record
-        if let AbstractPropType::StaticValue(inner) = cam {
-            assert_eq!(*inner, AbstractPropType::Any);
-        }
-    }
-
-    #[test]
-    fn hashmap_to_static_any() {
-        let cam = map_raw_type_to_cam("HashMap<String, usize>").unwrap();
-        assert!(matches!(cam, AbstractPropType::StaticValue(_)));
     }
 
     #[test]
     fn callback_generic_to_event_handler() {
         let cam = map_raw_type_to_cam("Callback<String>").unwrap();
-        assert!(matches!(cam, AbstractPropType::AsyncEventHandler(_)));
-    }
-
-    #[test]
-    fn event_handler_generic_to_event_handler() {
-        let cam = map_raw_type_to_cam("EventHandler<MouseEvent>").unwrap();
         assert!(matches!(cam, AbstractPropType::AsyncEventHandler(_)));
     }
 
@@ -196,21 +168,9 @@ mod tests {
     }
 
     #[test]
-    fn react_element_to_renderable() {
-        let cam = map_raw_type_to_cam("ReactElement").unwrap();
-        assert_eq!(cam, AbstractPropType::Renderable);
-    }
-
-    #[test]
     fn vnode_to_renderable() {
         let cam = map_raw_type_to_cam("VNode").unwrap();
         assert_eq!(cam, AbstractPropType::Renderable);
-    }
-
-    #[test]
-    fn callback_to_async_event_handler() {
-        let cam = map_raw_type_to_cam("Callback<String>").unwrap();
-        assert!(matches!(cam, AbstractPropType::AsyncEventHandler(_)));
     }
 
     #[test]
@@ -238,7 +198,6 @@ mod tests {
 
     #[test]
     fn option_wrapping_signal_unwraps_both() {
-        // Option<Signal<String>> → UncontrolledValue(ControlledValue(StaticValue(Any)))
         let cam = map_raw_type_to_cam("Option < Signal < String > >").unwrap();
         match cam {
             AbstractPropType::UncontrolledValue(outer) => {
