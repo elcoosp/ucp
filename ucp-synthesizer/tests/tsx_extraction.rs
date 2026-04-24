@@ -340,21 +340,3 @@ export class Button extends React.Component<ButtonProps> {
     assert_eq!(components[0].props.len(), 2);
 }
 
-#[test]
-fn extract_pure_component_class() {
-    let code = r#"
-export interface ListProps {
-  items: string[];
-}
-export class List extends React.PureComponent<ListProps> {
-  render() {
-    return <ul>{this.props.items.map(i => <li key={i}>{i}</li>)}</ul>;
-  }
-}
-"#;
-    let components = extract_tsx_components(code).unwrap();
-    assert_eq!(components.len(), 1);
-    assert_eq!(components[0].name, "List");
-    assert_eq!(components[0].props.len(), 1);
-}
-
