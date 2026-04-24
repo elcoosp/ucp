@@ -33,7 +33,7 @@ impl Visit<'_> for ComponentVisitor {
                 };
 
                 let raw_type = format!("{:?}", &*pat_type.ty);
-                let has_default = func.attrs.iter().any(|attr| {
+                let has_default = pat_type.attrs.iter().any(|attr| {
                     if let Meta::List(list) = &attr.meta {
                         list.path.is_ident("prop") && list.tokens.to_string().contains("default")
                     } else {

@@ -26,5 +26,5 @@ fn serialize_conflict_with_profile_scoping() {
         resolution_suggestion: ResolutionStrategy::ScopeToProfile("web".to_string()),
     };
     let json = serde_json::to_string(&conflict).unwrap();
-    assert!(json.contains("\"scopeToProfile\": \"web\""));
+    assert!(json.contains("\"scopeToProfile\":\"web\""));
 }

@@ -8,34 +8,29 @@ pub struct DiscoveredRepo {
     pub spdx_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct RepoItem {
-    full_name: String,
-    html_url: String,
-    license: Option<LicenseInfo>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct LicenseInfo {
-    spdx_id: String,
-}
-
 pub async fn find_shadcn_repos(query: &str, base_url: &str) -> Result<Vec<DiscoveredRepo>> {
     let octo = octocrab::Octocrab::builder()
-        .base_uri(base_url.trim_end_matches('/'))?
+        .base_uri(base_url.trim_end_matches('/'))
+        .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?
         .build()
         .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
 
-    let page = octo.search(query)
+    let page = octo.search()
+        .repositories(query)
         .per_page(10)
         .send()
         .await
         .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
 
-    let items: Vec<RepoItem> = page.items;
-    Ok(items.into_iter().map(|i| DiscoveredRepo {
-        full_name: i.full_name,
-        html_url: i.html_url.to_string(),
-        spdx_id: i.license.as_ref().map(|l| l.spdx_id.clone()),
+    Ok(page.items.into_iter().map(|repo: octocrab::models::Repository| {
+        let spdx_id = repo.license.as_ref().map(|l| {
+            let id = l.spdx_id.clone();
+            if id.is_empty() { None } else { Some(id) }
+        }).flatten();
+        DiscoveredRepo {
+            full_name: repo.full_name.unwrap_or_default(),
+            html_url: repo.html_url.map(|u| u.to_string()).unwrap_or_default(),
+            spdx_id,
+        }
     }).collect())
 }

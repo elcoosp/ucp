@@ -6,4 +6,4 @@ transition = { "on" ~ IDENT ~ "->" ~ IDENT ~ "{" ~ side_effect* ~ "}" }
 side_effect = { "+" ~ IDENT ~ ":" ~ value }
 
 IDENT = { ASCII_ALPHANUMERIC+ }
-value = { !(WHITESPACE | "}") ~ ANY* }
+value = { !(WHITESPACE | "}") ~ (!(WHITESPACE | "}") ~ ANY)* }

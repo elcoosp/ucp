@@ -1,3 +1,4 @@
+use regex::Regex;
 use ucp_core::{Result, UcpError};
 
 const ALLOWED_LICENSES: &[&str] = &[
@@ -6,21 +7,27 @@ const ALLOWED_LICENSES: &[&str] = &[
 ];
 
 pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
-    let expr = spdx::Expression::parse(license_str)
+    // Validate that the expression is valid SPDX syntax
+    let _expr = spdx::Expression::parse(license_str)
         .map_err(|e| UcpError::License(format!("Invalid SPDX: {}", e)))?;
 
-    for node in expr.iter() {
-        let node_str = node.to_string();
-        // Skip operator tokens (AND, OR, WITH, parens)
-        match node_str.as_str() {
-            "AND" | "OR" | "WITH" | "(" | ")" => continue,
-            _ => {}
-        }
-        if !ALLOWED_LICENSES.contains(&node_str.as_str()) {
-            return Err(UcpError::License(format!(
-                "Rejected non-permissive license: {}. Allowed: {:?}",
-                node_str, ALLOWED_LICENSES
-            )));
+    // Extract license identifiers from the raw string using regex.
+    // SPDX IDs are alphanumeric plus dots, pluses, and dashes.
+    // We skip operator keywords (AND, OR, WITH).
+    let re = Regex::new(r"[A-Za-z0-9.+-]+").unwrap();
+    for cap in re.captures_iter(license_str) {
+        let id = cap.get(0).unwrap().as_str();
+        match id {
+            "AND" | "OR" | "WITH" => continue,
+            _ if id.starts_with(char::is_uppercase) || id.starts_with(|c: char| c.is_ascii_digit()) => {
+                if !ALLOWED_LICENSES.contains(&id) {
+                    return Err(UcpError::License(format!(
+                        "Rejected non-permissive license: {}. Allowed: {:?}",
+                        id, ALLOWED_LICENSES
+                    )));
+                }
+            }
+            _ => continue,
         }
     }
     Ok(())

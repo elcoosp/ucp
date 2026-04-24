@@ -60,6 +60,7 @@ pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
         if trimmed.starts_with("export const") && trimmed.contains("=>") {
             if let Some(name_part) = trimmed.strip_prefix("export const") {
                 let name = name_part
+                    .trim()
                     .split(|c: char| !c.is_alphanumeric() && c != '_')
                     .next()
                     .unwrap_or("");
