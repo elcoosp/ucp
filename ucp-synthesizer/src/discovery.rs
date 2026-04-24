@@ -11,16 +11,16 @@ pub struct DiscoveredRepo {
 pub async fn find_shadcn_repos(query: &str, base_url: &str) -> Result<Vec<DiscoveredRepo>> {
     let octo = octocrab::Octocrab::builder()
         .base_uri(base_url.trim_end_matches('/'))
-        .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?
+        .map_err(|e| ucp_core::UcpError::Http(format!("Failed to set base URI: {}", e)))?
         .build()
-        .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
+        .map_err(|e| ucp_core::UcpError::Http(format!("Failed to build octocrab client: {}", e)))?;
 
     let page = octo.search()
         .repositories(query)
         .per_page(10)
         .send()
         .await
-        .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
+        .map_err(|e| ucp_core::UcpError::Http(format!("GitHub API request failed: {}", e)))?;
 
     Ok(page.items.into_iter().map(|repo: octocrab::models::Repository| {
         let spdx_id = repo.license.as_ref().map(|l| {

@@ -1,5 +1,6 @@
 use regex::Regex;
 use ucp_core::{Result, UcpError};
+use std::path::Path;
 
 const ALLOWED_LICENSES: &[&str] = &[
     "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause",
@@ -30,24 +31,33 @@ pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
 }
 
 /// Check if a file path is safe to parse (not credentials, secrets, etc.).
-/// Checks path components for "src" or "components" instead of string prefix,
-/// so it works for both relative and absolute paths.
+///
+/// Uses `std::path::Path` component iteration instead of string splitting,
+/// so it works correctly on both Unix and Windows paths regardless of separator.
 pub fn is_path_safe_to_parse(path: &str) -> bool {
-    let path = std::path::Path::new(path);
-    let path_str = path.to_string_lossy().replace("\\", "/");
+    let path = Path::new(path);
 
+    // Reject dangerous extensions
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         if ["env", "pem", "key"].contains(&ext.to_lowercase().as_str()) {
             return false;
         }
     }
+
+    // Reject dangerous file stems
     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
         if ["credentials", "secret"].contains(&stem.to_lowercase().as_str()) {
             return false;
         }
     }
 
-    // Check for "src" or "components" as path components anywhere in the path.
-    // This works for both relative ("src/foo.rs") and absolute ("/tmp/x/src/foo.rs") paths.
-    path_str.split('/').any(|part| part == "src" || part == "components")
+    // Require "src" or "components" as a path component anywhere in the path.
+    // Using Path::components() handles both "src/foo.rs" and
+    // "/tmp/x/src/foo.rs" correctly on any platform.
+    path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .map_or(false, |s| s == "src" || s == "components")
+    })
 }
