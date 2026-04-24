@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UCP v4.0 Conflict Resolution</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        h2 { color: #1a1a1a; margin-bottom: 16px; }
+        .container { display: flex; gap: 16px; height: calc(100vh - 80px); }
+        .column { flex: 1; border: 1px solid #ddd; border-radius: 8px; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
+        .column-header { font-weight: 600; padding: 12px 16px; border-bottom: 2px solid #333; background: #fafafa; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .column-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+        .column-body pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; font-family: "SF Mono", "Fira Code", monospace; }
+        .conflict-block { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #eee; }
+        .conflict-block:last-child { border-bottom: none; }
+        .conflict-id { color: #d00; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+        .conflict-field { font-weight: 600; margin-bottom: 4px; }
+        .conflict-meta { font-size: 12px; color: #666; margin-bottom: 4px; }
+        .conflict-meta strong { color: #333; }
+        .conflict-json pre { background: #f8f8f8; border: 1px solid #e8e8e8; border-radius: 4px; padding: 8px; font-size: 11px; }
+        .column-source-a .column-header { border-bottom-color: #2563eb; }
+        .column-source-b .column-header { border-bottom-color: #16a34a; }
+        .column-canon .column-header { border-bottom-color: #9333ea; }
+    </style>
+</head>
+<body>
+    <h2>UCP v4.0 Conflict Resolution UI</h2>
+    <div class="container">
+        <div class="column column-source-a">
+            <div class="column-header">Source A</div>
+            <div class="column-body"><pre>{{ source_a }}</pre></div>
+        </div>
+        <div class="column column-source-b">
+            <div class="column-header">Source B</div>
+            <div class="column-body"><pre>{{ source_b }}</pre></div>
+        </div>
+        <div class="column column-canon">
+            <div class="column-header">Proposed UCP Canon</div>
+            <div class="column-body">
+                {% for conflict in conflicts %}
+                <div class="conflict-block">
+                    <div class="conflict-id">Conflict: {{ conflict.id }} (Confidence: {{ conflict.confidence }})</div>
+                    <div class="conflict-field">Field: {{ conflict.field }}</div>
+                    <div class="conflict-meta"><strong>Present in:</strong> {{ conflict.present_in_joined }}</div>
+                    <div class="conflict-meta"><strong>Absent in:</strong> {{ conflict.absent_in_joined }}</div>
+                    <div class="conflict-json"><pre>{{ conflict.proposed_json }}</pre></div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

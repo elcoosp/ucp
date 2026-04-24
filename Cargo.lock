@@ -2331,6 +2331,7 @@ dependencies = [
 name = "ucp-synthesizer"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "async-trait",
  "mockito",
  "octocrab",
