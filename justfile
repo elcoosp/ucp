@@ -1,35 +1,52 @@
-# Default: run all tests
+# Default: run all unit + integration tests
 test:
     cargo nextest run
 
-# Quick compile check (no tests)
+# Quality gates
 check:
     cargo check --all-targets
 
-# Bootstrap a source directory
-bootstrap *ARGS:
-    cargo run --release -- bootstrap "{{ARGS}}"
-
-# Validate a spec file
-validate *ARGS:
-    cargo run --release -- validate "{{ARGS}}"
-
-# Merge spec files
-merge *ARGS:
-    cargo run --release -- merge "{{ARGS}}"
-
-# List components in a spec
-components *ARGS:
-    cargo run --release -- components "{{ARGS}}"
-
-# Lint
 lint:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets -D warnings
 
-# Format
+fmt-check:
+    cargo fmt --all -- --check
+
 fmt:
     cargo fmt --all
 
-# Watch and run tests on change
-wr:
-    watchexec -w ./wr.sh --clear -r "sh ./wr.sh test"
+# =============================================================================
+# End-to-end CLI tests (requires cargo build)
+# =============================================================================
+
+# Multi-file extraction, CLI commands, error handling, regex filter
+test-e2e:
+    cargo build && .just-e2e/test_e2e.sh
+
+# Conflict detection across managed specs
+test-e2e-conflict:
+    cargo build && .just-e2e/test_e2e_conflict.sh
+
+# Hidden files, dangerous extensions, excluded directories
+test-e2e-security:
+    cargo build && .just-e2e/test_e2e_security.sh
+
+# 200-component performance baseline
+test-perf:
+    cargo build && .just-e2e/test_perf.sh
+
+# =============================================================================
+# Domain Commands
+# =============================================================================
+
+bootstrap *ARGS:
+    cargo run --release -- bootstrap "{{ ARGS }}"
+
+validate *ARGS:
+    cargo run --release -- validate "{{ ARGS }}"
+
+merge *ARGS:
+    cargo run --release -- merge "{{ ARGS }}"
+
+components *ARGS:
+    cargo run --release -- components "{{ ARGS }}"

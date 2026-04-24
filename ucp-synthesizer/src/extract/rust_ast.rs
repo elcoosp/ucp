@@ -1,5 +1,5 @@
 use quote::ToTokens;
-use syn::{parse_file, visit::Visit, ItemFn, FnArg, Pat, Meta};
+use syn::{parse_file, visit::Visit, FnArg, ItemFn, Meta, Pat};
 use ucp_core::Result;
 
 #[derive(Debug, Clone)]
@@ -20,8 +20,13 @@ struct ComponentVisitor(Vec<RawComponentExtraction>);
 
 impl Visit<'_> for ComponentVisitor {
     fn visit_item_fn(&mut self, func: &ItemFn) {
-        let is_component = func.attrs.iter().any(|attr| attr.path().is_ident("component"));
-        if !is_component { return; }
+        let is_component = func
+            .attrs
+            .iter()
+            .any(|attr| attr.path().is_ident("component"));
+        if !is_component {
+            return;
+        }
 
         let name = func.sig.ident.to_string();
         let mut props = Vec::new();
@@ -55,13 +60,16 @@ impl Visit<'_> for ComponentVisitor {
         }
 
         // line_start is set to 0 here; post-processed after visiting.
-        self.0.push(RawComponentExtraction { name, line_start: 0, props });
+        self.0.push(RawComponentExtraction {
+            name,
+            line_start: 0,
+            props,
+        });
     }
 }
 
 pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>> {
-    let ast = parse_file(code)
-        .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
+    let ast = parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
 
     let mut visitor = ComponentVisitor(Vec::new());
     syn::visit::visit_file(&mut visitor, &ast);

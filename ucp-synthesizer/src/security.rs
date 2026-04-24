@@ -1,10 +1,15 @@
 use regex::Regex;
-use ucp_core::{Result, UcpError};
 use std::path::Path;
+use ucp_core::{Result, UcpError};
 
 const ALLOWED_LICENSES: &[&str] = &[
-    "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause",
-    "ISC", "0BSD", "Unicode-DFS-2016"
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+    "Unicode-DFS-2016",
 ];
 
 pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
@@ -16,7 +21,9 @@ pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
         let id = cap.get(0).unwrap().as_str();
         match id {
             "AND" | "OR" | "WITH" => continue,
-            _ if id.starts_with(char::is_uppercase) || id.starts_with(|c: char| c.is_ascii_digit()) => {
+            _ if id.starts_with(char::is_uppercase)
+                || id.starts_with(|c: char| c.is_ascii_digit()) =>
+            {
                 if !ALLOWED_LICENSES.contains(&id) {
                     return Err(UcpError::License(format!(
                         "Rejected non-permissive license: {}. Allowed: {:?}",

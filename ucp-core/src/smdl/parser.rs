@@ -38,7 +38,8 @@ pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<SmdlComponent> {
                                         ident_index += 1;
                                     }
                                     Rule::side_effect => {
-                                        let effect_str = t_pair.as_str().trim_start_matches("+ ").trim();
+                                        let effect_str =
+                                            t_pair.as_str().trim_start_matches("+ ").trim();
                                         effects.push(effect_str.to_string());
                                     }
                                     _ => {}
@@ -46,10 +47,13 @@ pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<SmdlComponent> {
                             }
 
                             if !target.is_empty() {
-                                transitions.insert(target.clone(), super::SmdlTransition {
-                                    target,
-                                    side_effects: effects,
-                                });
+                                transitions.insert(
+                                    target.clone(),
+                                    super::SmdlTransition {
+                                        target,
+                                        side_effects: effects,
+                                    },
+                                );
                             }
                         }
                         _ => {}
@@ -60,9 +64,16 @@ pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<SmdlComponent> {
                     initial_state = state_name.clone();
                 }
 
-                states.insert(state_name, super::SmdlState {
-                    on: if transitions.is_empty() { None } else { Some(transitions) },
-                });
+                states.insert(
+                    state_name,
+                    super::SmdlState {
+                        on: if transitions.is_empty() {
+                            None
+                        } else {
+                            Some(transitions)
+                        },
+                    },
+                );
             }
         }
     }

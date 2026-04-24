@@ -4,7 +4,9 @@ use ucp_core::cam::*;
 fn serialize_canonical_abstract_prop_controlled_value() {
     let prop = CanonicalAbstractProp {
         canonical_name: "value".to_string(),
-        abstract_type: AbstractPropType::ControlledValue(Box::new(AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)))),
+        abstract_type: AbstractPropType::ControlledValue(Box::new(AbstractPropType::StaticValue(
+            Box::new(AbstractPropType::Any),
+        ))),
         reactivity: AbstractReactivity::Controlled,
         sources: vec![],
         confidence: 0.95,

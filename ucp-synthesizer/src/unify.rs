@@ -46,7 +46,9 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
         || clean.starts_with("BTreeMap<")
         || clean.starts_with("Map<")
     {
-        return Ok(AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)));
+        return Ok(AbstractPropType::StaticValue(Box::new(
+            AbstractPropType::Any,
+        )));
     }
 
     // Callback / event handler patterns → AsyncEventHandler
@@ -80,13 +82,13 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
     // Leaf types
     match clean.as_str() {
         "bool" => Ok(AbstractPropType::ControlFlag),
-        "String" | "&str" | "SharedString" | "Cow<str>" => {
-            Ok(AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)))
-        }
-        "usize" | "isize" | "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32"
-        | "i64" | "f32" | "f64" => {
-            Ok(AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)))
-        }
+        "String" | "&str" | "SharedString" | "Cow<str>" => Ok(AbstractPropType::StaticValue(
+            Box::new(AbstractPropType::Any),
+        )),
+        "usize" | "isize" | "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "f32"
+        | "f64" => Ok(AbstractPropType::StaticValue(Box::new(
+            AbstractPropType::Any,
+        ))),
         _ => Ok(AbstractPropType::Any),
     }
 }
@@ -200,14 +202,15 @@ mod tests {
     fn option_wrapping_signal_unwraps_both() {
         let cam = map_raw_type_to_cam("Option < Signal < String > >").unwrap();
         match cam {
-            AbstractPropType::UncontrolledValue(outer) => {
-                match outer.as_ref() {
-                    AbstractPropType::ControlledValue(inner) => {
-                        assert!(matches!(inner.as_ref(), AbstractPropType::StaticValue(_)));
-                    }
-                    other => panic!("Expected ControlledValue inside UncontrolledValue, got {:?}", other),
+            AbstractPropType::UncontrolledValue(outer) => match outer.as_ref() {
+                AbstractPropType::ControlledValue(inner) => {
+                    assert!(matches!(inner.as_ref(), AbstractPropType::StaticValue(_)));
                 }
-            }
+                other => panic!(
+                    "Expected ControlledValue inside UncontrolledValue, got {:?}",
+                    other
+                ),
+            },
             other => panic!("Expected UncontrolledValue, got {:?}", other),
         }
     }

@@ -1,5 +1,5 @@
-use ucp_synthesizer::curation::generate_curation_html;
 use ucp_core::cam::{Conflict, ResolutionStrategy};
+use ucp_synthesizer::curation::generate_curation_html;
 
 #[test]
 fn generate_html_contains_3_columns() {

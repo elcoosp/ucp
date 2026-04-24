@@ -64,12 +64,9 @@ async fn pipeline_extracts_correct_prop_types() {
     let tmp = setup_source_dir();
     let source_dir = tmp.path().to_string_lossy().to_string();
 
-    let output = pipeline::run_pipeline_with_options(
-        &source_dir,
-        &PipelineOptions::default(),
-    )
-    .await
-    .unwrap();
+    let output = pipeline::run_pipeline_with_options(&source_dir, &PipelineOptions::default())
+        .await
+        .unwrap();
 
     let comp = &output.components[0];
     assert!(
@@ -78,8 +75,11 @@ async fn pipeline_extracts_correct_prop_types() {
         comp.id
     );
 
-    let props_by_name: std::collections::HashMap<_, _> =
-        comp.props.iter().map(|p| (p.canonical_name.as_str(), p)).collect();
+    let props_by_name: std::collections::HashMap<_, _> = comp
+        .props
+        .iter()
+        .map(|p| (p.canonical_name.as_str(), p))
+        .collect();
 
     // elevated: bool → ControlFlag
     let elevated = props_by_name["elevated"];
@@ -88,11 +88,17 @@ async fn pipeline_extracts_correct_prop_types() {
 
     // title: String → StaticValue(Any)
     let title = props_by_name["title"];
-    assert!(matches!(title.abstract_type, AbstractPropType::StaticValue(_)));
+    assert!(matches!(
+        title.abstract_type,
+        AbstractPropType::StaticValue(_)
+    ));
 
     // padding: usize → StaticValue(Any)
     let padding = props_by_name["padding"];
-    assert!(matches!(padding.abstract_type, AbstractPropType::StaticValue(_)));
+    assert!(matches!(
+        padding.abstract_type,
+        AbstractPropType::StaticValue(_)
+    ));
     assert!(padding.conflicts.is_empty());
 }
 
@@ -195,10 +201,16 @@ export const Badge = (props: BadgeProps) => {
         comp.source_repos[0].line_start
     );
 
-    let props_by_name: std::collections::HashMap<_, _> =
-        comp.props.iter().map(|p| (p.canonical_name.as_str(), p)).collect();
+    let props_by_name: std::collections::HashMap<_, _> = comp
+        .props
+        .iter()
+        .map(|p| (p.canonical_name.as_str(), p))
+        .collect();
 
     // onClick: () => void → AsyncEventHandler
     let on_click = props_by_name["onClick"];
-    assert!(matches!(on_click.abstract_type, AbstractPropType::AsyncEventHandler(_)));
+    assert!(matches!(
+        on_click.abstract_type,
+        AbstractPropType::AsyncEventHandler(_)
+    ));
 }

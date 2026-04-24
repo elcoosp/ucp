@@ -9,11 +9,9 @@ mod types;
 // Re-export everything at the `cam` level so existing imports like
 // `ucp_core::cam::CanonicalAbstractComponent` continue to work.
 pub use fingerprint::SemanticFingerprint;
-pub use props::{
-    AbstractPropType, AbstractReactivity, Conflict, ResolutionStrategy,
-};
-pub use state_machine::{StateNode, StateMachine, Transition};
+pub use props::{AbstractPropType, AbstractReactivity, Conflict, ResolutionStrategy};
+pub use state_machine::{StateMachine, StateNode, Transition};
 pub use types::{
-    CanonicalAbstractComponent, CanonicalAbstractEvent, CanonicalAbstractProp,
-    ExtractedPart, PropSourceMapping, SourceAttribution,
+    CanonicalAbstractComponent, CanonicalAbstractEvent, CanonicalAbstractProp, ExtractedPart,
+    PropSourceMapping, SourceAttribution,
 };

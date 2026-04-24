@@ -1,5 +1,5 @@
-use ucp_synthesizer::unify::map_raw_type_to_cam;
 use ucp_core::cam::AbstractPropType;
+use ucp_synthesizer::unify::map_raw_type_to_cam;
 
 #[test]
 fn map_leptos_rw_signal_to_controlled_value() {

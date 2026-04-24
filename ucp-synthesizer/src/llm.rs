@@ -54,15 +54,12 @@ pub async fn infer_behavior(
         .await
         .map_err(|e| UcpError::LlmInference(e.to_string()))?;
 
-    let json_str = res["response"]
-        .as_str()
-        .ok_or_else(|| {
-            UcpError::LlmInference("Missing 'response' field in Ollama output".to_string())
-        })?;
+    let json_str = res["response"].as_str().ok_or_else(|| {
+        UcpError::LlmInference("Missing 'response' field in Ollama output".to_string())
+    })?;
 
-    serde_json::from_str(json_str).map_err(|e| {
-        UcpError::LlmInference(format!("Failed to parse LLM JSON: {}", e))
-    })
+    serde_json::from_str(json_str)
+        .map_err(|e| UcpError::LlmInference(format!("Failed to parse LLM JSON: {}", e)))
 }
 
 /// Build a component enrichment prompt for the LLM.
@@ -75,7 +72,6 @@ pub fn build_enrichment_prompt(component_name: &str, code: &str) -> String {
          \"keywords\": [\"list\", \"of\", \"semantic\", \"keywords\"]\n\
          }}\n\n\
          Code:\n{}",
-        component_name,
-        code
+        component_name, code
     )
 }

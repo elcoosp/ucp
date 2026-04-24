@@ -99,7 +99,8 @@ mod tests {
     #[test]
     fn html_contains_source_code() {
         let conflicts = vec![];
-        let html = generate_curation_html(&conflicts, "fn main() {}", "pub fn run() {}", "{}").unwrap();
+        let html =
+            generate_curation_html(&conflicts, "fn main() {}", "pub fn run() {}", "{}").unwrap();
         assert!(html.contains("fn main()"));
         assert!(html.contains("pub fn run()"));
     }

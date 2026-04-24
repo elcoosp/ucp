@@ -29,8 +29,11 @@ fn parse_simple_dialog_smdl_to_typed() {
     assert_eq!(closed_on["Open"].target, "Open");
 
     let side_effects = &closed_on["Open"].side_effects;
-    assert!(side_effects.iter().any(|e| e.contains("focus: move_to")),
-        "Missing 'focus: move_to' side effect, got: {:?}", side_effects);
+    assert!(
+        side_effects.iter().any(|e| e.contains("focus: move_to")),
+        "Missing 'focus: move_to' side effect, got: {:?}",
+        side_effects
+    );
 
     let open_on = result.states["Open"].on.as_ref().unwrap();
     assert_eq!(open_on["Closed"].target, "Closed");

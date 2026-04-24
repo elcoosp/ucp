@@ -265,10 +265,18 @@ export default function Alert(props: AlertProps) {
     assert_eq!(components[0].name, "Alert");
     assert_eq!(components[0].props.len(), 2);
 
-    let message = components[0].props.iter().find(|p| p.name == "message").unwrap();
+    let message = components[0]
+        .props
+        .iter()
+        .find(|p| p.name == "message")
+        .unwrap();
     assert!(!message.is_optional);
 
-    let visible = components[0].props.iter().find(|p| p.name == "visible").unwrap();
+    let visible = components[0]
+        .props
+        .iter()
+        .find(|p| p.name == "visible")
+        .unwrap();
     assert!(visible.is_optional);
 }
 
@@ -301,10 +309,18 @@ const Card: React.FC<CardProps> = ({ title, children }) => {
     assert_eq!(components[0].name, "Card");
     assert_eq!(components[0].props.len(), 2);
 
-    let title = components[0].props.iter().find(|p| p.name == "title").unwrap();
+    let title = components[0]
+        .props
+        .iter()
+        .find(|p| p.name == "title")
+        .unwrap();
     assert!(!title.is_optional);
 
-    let children = components[0].props.iter().find(|p| p.name == "children").unwrap();
+    let children = components[0]
+        .props
+        .iter()
+        .find(|p| p.name == "children")
+        .unwrap();
     assert!(children.is_optional);
 }
 
@@ -339,4 +355,3 @@ export class Button extends React.Component<ButtonProps> {
     assert_eq!(components[0].name, "Button");
     assert_eq!(components[0].props.len(), 2);
 }
-

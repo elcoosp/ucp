@@ -122,7 +122,10 @@ fn is_react_fc_declaration(line: &str) -> bool {
 
     // Name must be a valid identifier
     if before_colon.is_empty()
-        || !before_colon.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        || !before_colon
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '_')
     {
         return false;
     }
@@ -137,9 +140,7 @@ fn is_react_fc_declaration(line: &str) -> bool {
 
 /// Check for `class X extends React.Component<Props>` patterns.
 fn is_class_component(line: &str) -> bool {
-    let stripped = line
-        .strip_prefix("export ")
-        .unwrap_or(line);
+    let stripped = line.strip_prefix("export ").unwrap_or(line);
 
     if !stripped.starts_with("class ") {
         return false;
@@ -228,15 +229,29 @@ fn parse_props_from_body(body: &str, props: &mut Vec<RawTsxPropExtraction>) {
 
     for ch in body.chars() {
         match ch {
-            '{' => { depth += 1; current.push(ch); }
-            '}' => { depth -= 1; current.push(ch); }
-            '<' => { angle += 1; current.push(ch); }
-            '>' => { angle -= 1; current.push(ch); }
+            '{' => {
+                depth += 1;
+                current.push(ch);
+            }
+            '}' => {
+                depth -= 1;
+                current.push(ch);
+            }
+            '<' => {
+                angle += 1;
+                current.push(ch);
+            }
+            '>' => {
+                angle -= 1;
+                current.push(ch);
+            }
             ';' | ',' if depth == 0 && angle == 0 => {
                 parse_single_prop(current.trim(), props);
                 current.clear();
             }
-            _ => { current.push(ch); }
+            _ => {
+                current.push(ch);
+            }
         }
     }
 
@@ -266,7 +281,11 @@ fn parse_single_prop(segment: &str, props: &mut Vec<RawTsxPropExtraction>) {
     if prop_name.is_empty() {
         return;
     }
-    if !prop_name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') {
+    if !prop_name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
+    {
         return;
     }
 
