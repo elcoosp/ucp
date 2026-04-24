@@ -1,0 +1,9 @@
+WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+
+component = { "component" ~ IDENT ~ "{" ~ state* ~ "}" }
+state = { "state" ~ IDENT ~ "{" ~ transition* ~ "}" }
+transition = { "on" ~ IDENT ~ "->" ~ IDENT ~ "{" ~ side_effect* ~ "}" }
+side_effect = { "+" ~ IDENT ~ ":" ~ value }
+
+IDENT = { ASCII_ALPHANUMERIC+ }
+value = { !(WHITESPACE | "}") ~ ANY* }

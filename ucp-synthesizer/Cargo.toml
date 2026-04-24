@@ -1,0 +1,23 @@
+[package]
+name = "ucp-synthesizer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ucp-core = { path = "../ucp-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["full"] }
+spdx = "0.10"
+octocrab = "0.42"
+regex = "1.10"
+async-trait = "0.1"
+syn = { version = "2.0", features = ["full", "visit", "extra-traits"] }
+biome_js_parser = "0.5.7"
+biome_js_syntax = "0.5.7"
+
+[dev-dependencies]
+mockito = "1.5"
+tokio-test = "0.4"
