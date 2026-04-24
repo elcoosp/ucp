@@ -2307,7 +2307,6 @@ name = "ucp-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "askama",
  "clap",
  "serde_json",
  "tokio",
