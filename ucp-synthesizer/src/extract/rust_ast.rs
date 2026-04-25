@@ -7,6 +7,8 @@ pub struct RawComponentExtraction {
     pub name: String,
     pub line_start: usize,
     pub props: Vec<RawPropExtraction>,
+    /// True if this extraction came from the struct-props visitor.
+    pub is_struct_pattern: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +66,7 @@ impl Visit<'_> for ComponentVisitor {
             name,
             line_start: 0,
             props,
+            is_struct_pattern: false,
         });
     }
 }
@@ -205,6 +208,7 @@ impl Visit<'_> for StructComponentVisitor {
                                     name: impl_type_name.clone(),
                                     line_start,
                                     props: props.clone(),
+                                    is_struct_pattern: true,
                                 });
                                 break;
                             }
