@@ -214,3 +214,27 @@ export const Badge = (props: BadgeProps) => {
         AbstractPropType::AsyncEventHandler(_)
     ));
 }
+
+#[tokio::test]
+async fn pipeline_extracts_struct_props_components() {
+    let tmp = TempDir::new().unwrap();
+    let src_dir = tmp.path().join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    let fixtures = std::path::Path::new("tests/leptos_shadcn_fixtures");
+    for entry in fs::read_dir(fixtures).unwrap() {
+        let entry = entry.unwrap();
+        fs::copy(entry.path(), src_dir.join(entry.file_name())).unwrap();
+    }
+    let output = pipeline::run_pipeline_with_options(
+        &tmp.path().to_string_lossy().to_string(),
+        &PipelineOptions::default(),
+    ).await.unwrap();
+    assert_eq!(output.stats.components_found, 2);
+    for comp in &output.components {
+        assert!(comp.id.contains("StandardizedButton") || comp.id.contains("Badge"));
+    }
+    let button = output.components.iter().find(|c| c.id.contains("StandardizedButton")).unwrap();
+    assert!(button.props.len() >= 4);
+    assert!(button.props.iter().any(|p| p.canonical_name == "disabled"));
+    assert!(button.props.iter().any(|p| p.canonical_name == "onclick"));
+}
