@@ -228,12 +228,18 @@ async fn pipeline_extracts_struct_props_components() {
     let output = pipeline::run_pipeline_with_options(
         &tmp.path().to_string_lossy().to_string(),
         &PipelineOptions::default(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
     assert_eq!(output.stats.components_found, 2);
     for comp in &output.components {
         assert!(comp.id.contains("StandardizedButton") || comp.id.contains("Badge"));
     }
-    let button = output.components.iter().find(|c| c.id.contains("StandardizedButton")).unwrap();
+    let button = output
+        .components
+        .iter()
+        .find(|c| c.id.contains("StandardizedButton"))
+        .unwrap();
     assert!(button.props.len() >= 4);
     assert!(button.props.iter().any(|p| p.canonical_name == "disabled"));
     assert!(button.props.iter().any(|p| p.canonical_name == "onclick"));

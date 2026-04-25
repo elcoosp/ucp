@@ -815,34 +815,50 @@ mod tests {
     }
 }
 
-fn unify_rust_component_struct(raw: &rust_ast::RawComponentExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
-    let props: Vec<CanonicalAbstractProp> = raw.props.iter().map(|rp| {
-        let cam_type = map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any);
-        let reactivity = derive_reactivity(&cam_type, rp.has_default);
-        CanonicalAbstractProp {
-            canonical_name: rp.name.clone(),
-            abstract_type: cam_type,
-            reactivity,
-            sources: vec![PropSourceMapping {
-                repo_id: file_path.to_string(),
-                original_name: rp.name.clone(),
-                original_type: rp.raw_type.clone(),
-            }],
-            confidence: 0.0,
-            conflicts: vec![],
-        }
-    }).collect();
+fn unify_rust_component_struct(
+    raw: &rust_ast::RawComponentExtraction,
+    file_path: &str,
+) -> Result<CanonicalAbstractComponent> {
+    let props: Vec<CanonicalAbstractProp> = raw
+        .props
+        .iter()
+        .map(|rp| {
+            let cam_type = map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any);
+            let reactivity = derive_reactivity(&cam_type, rp.has_default);
+            CanonicalAbstractProp {
+                canonical_name: rp.name.clone(),
+                abstract_type: cam_type,
+                reactivity,
+                sources: vec![PropSourceMapping {
+                    repo_id: file_path.to_string(),
+                    original_name: rp.name.clone(),
+                    original_type: rp.raw_type.clone(),
+                }],
+                confidence: 0.0,
+                conflicts: vec![],
+            }
+        })
+        .collect();
 
     let confidence = compute_confidence(&props, BASE_CONFIDENCE_RUST);
     let events = extract_events_from_props(&props);
     let extracted_parts = populate_extracted_parts(&props);
-    let props_with_confidence: Vec<_> = props.into_iter().map(|mut p| { p.confidence = confidence; p }).collect();
+    let props_with_confidence: Vec<_> = props
+        .into_iter()
+        .map(|mut p| {
+            p.confidence = confidence;
+            p
+        })
+        .collect();
 
     Ok(CanonicalAbstractComponent {
         id: format!("rust-struct:{}:{}", file_path, raw.name),
         semantic_fingerprint: SemanticFingerprint {
             purpose_hash: compute_purpose_hash(&raw.name, &props_with_confidence),
-            normalized_prop_names: props_with_confidence.iter().map(|p| p.canonical_name.clone()).collect(),
+            normalized_prop_names: props_with_confidence
+                .iter()
+                .map(|p| p.canonical_name.clone())
+                .collect(),
         },
         props: props_with_confidence,
         events,
