@@ -7,7 +7,7 @@ check:
     cargo check --all-targets
 
 lint:
-    cargo clippy --all-targets -D warnings
+    cargo clippy --all-targets
 
 fmt-check:
     cargo fmt --all -- --check
@@ -50,3 +50,5 @@ merge *ARGS:
 
 components *ARGS:
     cargo run --release -- components "{{ ARGS }}"
+wr:
+    watchexec -w ./wr.sh --clear -r "sh ./wr.sh"

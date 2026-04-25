@@ -85,3 +85,130 @@ pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>
 
     Ok(visitor.0)
 }
+
+// ── Struct-props visitor ──────────────────────────────────────────────────
+
+/// A visitor that extracts components defined via the struct-props pattern.
+///
+/// Recognised pattern:
+///   pub struct <Name>Props { ... }
+///   impl <Name> {
+///       pub fn render(props: <Name>Props) -> impl IntoView { ... }
+///   }
+pub struct StructComponentVisitor {
+    pub components: Vec<RawComponentExtraction>,
+    props_structs: std::collections::HashMap<String, (String, Vec<RawPropExtraction>, usize)>,
+    source: String,
+}
+
+impl StructComponentVisitor {
+    pub fn extract(code: &str) -> Result<Vec<RawComponentExtraction>> {
+        use syn::visit::Visit;
+        let ast = parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
+        let mut visitor = StructComponentVisitor {
+            components: Vec::new(),
+            props_structs: std::collections::HashMap::new(),
+            source: code.to_string(),
+        };
+        visitor.visit_file(&ast);
+        Ok(visitor.components)
+    }
+}
+
+/// Extract a simple type name from a `syn::Type`, handling paths and generics.
+fn extract_type_name(ty: &syn::Type) -> String {
+    match ty {
+        syn::Type::Path(type_path) => type_path
+            .path
+            .segments
+            .last()
+            .map(|seg| seg.ident.to_string())
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+impl Visit<'_> for StructComponentVisitor {
+    fn visit_item_struct(&mut self, item: &syn::ItemStruct) {
+        let struct_name = item.ident.to_string();
+        if !struct_name.ends_with("Props") || struct_name == "Props" {
+            return;
+        }
+        let stem = struct_name
+            .strip_suffix("Props")
+            .unwrap_or(&struct_name)
+            .to_string();
+        if stem.is_empty() {
+            return;
+        }
+        let mut props = Vec::new();
+        for field in &item.fields {
+            let field_name = field
+                .ident
+                .as_ref()
+                .map(|i| i.to_string())
+                .unwrap_or_default();
+            if field_name.is_empty() {
+                continue;
+            }
+            let raw_type = field.ty.to_token_stream().to_string();
+            let has_default = raw_type.trim().starts_with("Option");
+            props.push(RawPropExtraction {
+                name: field_name,
+                raw_type,
+                has_default,
+            });
+        }
+        if props.is_empty() {
+            return;
+        }
+        let search = format!("pub struct {}", struct_name);
+        let line_start = self
+            .source
+            .find(&search)
+            .map(|pos| self.source[..pos].matches('\n').count() + 1)
+            .unwrap_or(0);
+        self.props_structs
+            .insert(stem, (struct_name, props, line_start));
+    }
+
+    fn visit_item_impl(&mut self, item: &syn::ItemImpl) {
+        let impl_type_name = extract_type_name(&item.self_ty);
+        if impl_type_name.is_empty() {
+            return;
+        }
+        if let Some((struct_name, props, line_start)) = self.props_structs.remove(&impl_type_name) {
+            let mut found_render = false;
+            for item_impl in &item.items {
+                if let syn::ImplItem::Fn(method) = item_impl {
+                    if method.sig.ident == "render"
+                        && matches!(method.vis, syn::Visibility::Public(_))
+                        && method.sig.inputs.len() == 1
+                    {
+                        if let Some(syn::FnArg::Typed(pat_type)) = method.sig.inputs.first() {
+                            let param_type_name = extract_type_name(&pat_type.ty);
+                            if param_type_name == struct_name
+                                || param_type_name.ends_with(&struct_name)
+                            {
+                                found_render = true;
+                                self.components.push(RawComponentExtraction {
+                                    name: impl_type_name.clone(),
+                                    line_start,
+                                    props: props.clone(),
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if !found_render {
+                eprintln!(
+                    "  ⚠ Skipping component in struct {}: no matching pub fn render found",
+                    struct_name
+                );
+            }
+        }
+        syn::visit::visit_item_impl(self, item);
+    }
+}
