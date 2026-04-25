@@ -69,21 +69,31 @@ impl Visit<'_> for ComponentVisitor {
 }
 
 pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>> {
+    // Parse the AST once for both visitors
     let ast = parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
 
-    let mut visitor = ComponentVisitor(Vec::new());
-    syn::visit::visit_file(&mut visitor, &ast);
+    // Original visitor for #[component] functions
+    let mut fn_visitor = ComponentVisitor(Vec::new());
+    syn::visit::visit_file(&mut fn_visitor, &ast);
 
-    // proc_macro2::Span does not expose line/column info outside of proc-macro
-    // context. Compute line_start by searching for "fn <name>" in the source.
-    for comp in &mut visitor.0 {
-        let search = format!("fn {}", comp.name);
-        if let Some(pos) = code.find(&search) {
-            comp.line_start = code[..pos].matches('\n').count() + 1;
+    // Compute line_start for fn-based components (existing logic)
+    for comp in &mut fn_visitor.0 {
+        if comp.line_start == 0 {
+            let search = format!("fn {}", comp.name);
+            if let Some(pos) = code.find(&search) {
+                comp.line_start = code[..pos].matches('\n').count() + 1;
+            }
         }
     }
 
-    Ok(visitor.0)
+    // New visitor for struct-props pattern
+    let struct_components = StructComponentVisitor::extract(code)?;
+
+    // Combine results
+    let mut all = fn_visitor.0;
+    all.extend(struct_components);
+
+    Ok(all)
 }
 
 // ── Struct-props visitor ──────────────────────────────────────────────────
