@@ -43,7 +43,7 @@ impl Visit<'_> for ComponentVisitor {
                 // Use ToTokens to get the source-level type string (e.g. "bool",
                 // "MaybeSignal<String>") instead of syn's Debug which prints AST
                 // structure (e.g. "Type::Path { ... }").
-                let raw_type = pat_type.ty.to_token_stream().to_string();
+                let raw_type = pat_type.ty.to_token_stream().to_string().replace(" ", "");
                 let has_default = pat_type.attrs.iter().any(|attr| {
                     if let Meta::List(list) = &attr.meta {
                         list.path.is_ident("prop") && list.tokens.to_string().contains("default")
@@ -163,7 +163,7 @@ impl Visit<'_> for StructComponentVisitor {
             if field_name.is_empty() {
                 continue;
             }
-            let raw_type = field.ty.to_token_stream().to_string();
+            let raw_type = field.ty.to_token_stream().to_string().replace(" ", "");
             let has_default = raw_type.trim().starts_with("Option");
             props.push(RawPropExtraction {
                 name: field_name,
