@@ -1,4 +1,3 @@
-use std::fs;
 use ucp_core::cam::AbstractPropType;
 use ucp_synthesizer::pipeline::{self, PipelineOptions};
 
@@ -17,7 +16,11 @@ async fn dioxus_fixtures_all_components_extracted() {
 
     let comps = output.components;
     // We expect at least the four components: Button, Dialog, Accordion, AccordionItem
-    assert!(comps.len() >= 4, "Expected at least 4 components, got {}", comps.len());
+    assert!(
+        comps.len() >= 4,
+        "Expected at least 4 components, got {}",
+        comps.len()
+    );
 
     let mut button_found = false;
     let mut dialog_found = false;
@@ -29,7 +32,10 @@ async fn dioxus_fixtures_all_components_extracted() {
             button_found = true;
             // Button should have spread attributes
             let attr = comp.props.iter().find(|p| p.canonical_name == "attributes");
-            assert!(attr.is_some(), "Button component should have 'attributes' prop");
+            assert!(
+                attr.is_some(),
+                "Button component should have 'attributes' prop"
+            );
             assert_eq!(
                 attr.unwrap().abstract_type,
                 AbstractPropType::SpreadAttributes,
@@ -38,11 +44,17 @@ async fn dioxus_fixtures_all_components_extracted() {
         } else if comp.id.contains("Dialog") {
             dialog_found = true;
             assert!(comp.props.iter().any(|p| p.canonical_name == "open"));
-            assert!(comp.props.iter().any(|p| p.canonical_name == "default_open"));
+            assert!(comp
+                .props
+                .iter()
+                .any(|p| p.canonical_name == "default_open"));
         } else if comp.id.contains("AccordionItem") {
             accordion_item_found = true;
             let attr = comp.props.iter().find(|p| p.canonical_name == "attributes");
-            assert!(attr.is_some(), "AccordionItem should have spread attributes");
+            assert!(
+                attr.is_some(),
+                "AccordionItem should have spread attributes"
+            );
             assert_eq!(
                 attr.unwrap().abstract_type,
                 AbstractPropType::SpreadAttributes,
@@ -57,5 +69,8 @@ async fn dioxus_fixtures_all_components_extracted() {
     assert!(button_found, "Should have found Button component");
     assert!(dialog_found, "Should have found Dialog component");
     assert!(accordion_found, "Should have found Accordion component");
-    assert!(accordion_item_found, "Should have found AccordionItem component");
+    assert!(
+        accordion_item_found,
+        "Should have found AccordionItem component"
+    );
 }
