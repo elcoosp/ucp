@@ -15,6 +15,7 @@ pub struct RawPropExtraction {
     pub name: String,
     pub raw_type: String,
     pub has_default: bool,
+    pub is_event: bool,
 }
 
 struct ComponentVisitor(Vec<RawComponentExtraction>);
@@ -56,6 +57,7 @@ impl Visit<'_> for ComponentVisitor {
                     name: prop_name,
                     raw_type,
                     has_default,
+                    is_event: false,
                 });
             }
         }
@@ -171,6 +173,7 @@ impl Visit<'_> for StructComponentVisitor {
                 name: field_name,
                 raw_type,
                 has_default,
+                is_event: false,
             });
         }
         if props.is_empty() {
@@ -229,19 +232,24 @@ impl Visit<'_> for StructComponentVisitor {
 }
 // PATCH-GPUI-VISITOR
 
+
 // ── GPUI visitor ──────────────────────────────────────────────────────────
 
 /// A visitor that extracts components from the GPUI framework.
 /// It looks for structs annotated with `#[derive(IntoElement)]` and treats
-/// their fields as props.
+/// their fields as props. It also scans impl blocks for builder methods,
+/// detects event callbacks, and adds a `children` prop for components
+/// implementing `ParentElement`.
 pub struct GpuiComponentVisitor;
 
 impl GpuiComponentVisitor {
     pub fn extract(code: &str) -> Result<Vec<RawComponentExtraction>> {
-        let mut components = Vec::new();
         let ast = syn::parse_file(code)
             .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
+        let mut components: Vec<RawComponentExtraction> = Vec::new();
 
+        // ---------- pass 1: detect structs and their fields ----------
+        let mut struct_candidates: Vec<(&syn::Item, &syn::ItemStruct)> = Vec::new();
         for item in &ast.items {
             if let syn::Item::Struct(item_struct) = item {
                 if item_struct.attrs.iter().any(|attr| {
@@ -251,35 +259,139 @@ impl GpuiComponentVisitor {
                         } else { false }
                     } else { false }
                 }) {
-                    let mut props = Vec::new();
-                    for field in &item_struct.fields {
-                        let field_name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
-                        if field_name.is_empty() { continue; }
-                        let raw_type = field.ty.to_token_stream().to_string();
-                        let has_default = raw_type.trim().starts_with("Option");
-                        props.push(RawPropExtraction {
-                            name: field_name,
-                            raw_type,
-                            has_default,
-                        });
-                    }
-                    if props.is_empty() { continue; }
-
-                    let name = item_struct.ident.to_string();
-                    let line_start = code.lines()
-                        .enumerate()
-                        .find(|(_, line)| line.contains(&format!("struct {}", name)))
-                        .map(|(i, _)| i + 1)
-                        .unwrap_or(0);
-                    components.push(RawComponentExtraction {
-                        name,
-                        line_start,
-                        props,
-                        is_struct_pattern: false,
-                    });
+                    struct_candidates.push((item, item_struct));
                 }
             }
         }
+
+        // ---------- collect impl blocks per type name ----------
+        let mut impl_methods: std::collections::HashMap<String, Vec<&syn::ImplItem>> = std::collections::HashMap::new();
+        for item in &ast.items {
+            if let syn::Item::Impl(impl_block) = item {
+                let type_name = if let syn::Type::Path(tp) = &*impl_block.self_ty {
+                    tp.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()
+                } else { continue };
+                if type_name.is_empty() { continue; }
+                impl_methods.entry(type_name)
+                    .or_default()
+                    .extend(impl_block.items.iter());
+            }
+        }
+
+        // ---------- pass 2: build components ----------
+        for (_, item_struct) in struct_candidates {
+            let struct_name = item_struct.ident.to_string();
+            let mut props: Vec<RawPropExtraction> = Vec::new();
+
+            // add field‑based props (overridden later by builder methods)
+            for field in &item_struct.fields {
+                let field_name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
+                if field_name.is_empty() { continue; }
+                let raw_type = field.ty.to_token_stream().to_string();
+                let has_default = raw_type.trim().starts_with("Option");
+                props.push(RawPropExtraction {
+                    name: field_name.clone(),
+                    raw_type,
+                    has_default,
+                    is_event: false,
+                });
+            }
+
+            // apply builder methods from impl blocks (override field props)
+            if let Some(methods) = impl_methods.get(&struct_name) {
+                for item_impl in methods {
+                    if let syn::ImplItem::Fn(method) = item_impl {
+                        // builder pattern: fn name(mut self, arg: T) -> Self
+                        if method.sig.inputs.len() != 2 { continue; }      // self + one param
+                        if method.sig.ident == "new" { continue; }          // skip constructor
+                        let is_mut_self = matches!(method.sig.inputs.first(), Some(syn::FnArg::Receiver(r)) if r.mutability.is_some());
+                        if !is_mut_self { continue; }
+
+                        let param = match &method.sig.inputs[1] {
+                            syn::FnArg::Typed(pt) => pt,
+                            _ => continue,
+                        };
+                        let arg_type = param.ty.to_token_stream().to_string(); // external type
+
+                        // check for event‑like patterns
+                        let is_event = arg_type.contains("Fn") || arg_type.contains("Callback") ||
+                            arg_type.contains("fn(") || method.sig.ident.to_string().starts_with("on_");
+
+                        // match to a struct field (builders usually set a same‑named field)
+                        let mut matched_field = false;
+                        for prop in &mut props {
+                            if prop.name == method.sig.ident.to_string() {
+                                prop.raw_type = arg_type.clone();  // use method's type, more accurate
+                                prop.has_default = false;          // builder must be called explicitly
+                                prop.is_event = is_event;
+                                matched_field = true;
+                                break;
+                            }
+                        }
+
+                        // if no field matches, still add a prop (new) – might be variant setter but we skip those
+                        // for now, only add if it's an event (e.g., on_click without explicit field)
+                        if !matched_field && is_event {
+                            props.push(RawPropExtraction {
+                                name: method.sig.ident.to_string(),
+                                raw_type: arg_type,
+                                has_default: false,
+                                is_event: true,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // ---------- children detection via ParentElement impl ----------
+            if impl_methods.get(&struct_name)
+                .map_or(false, |methods| {
+                    methods.iter().any(|m| {
+                        if let syn::ImplItem::Type(ty) = m {
+                            ty.ident == "ParentElement"
+                        } else { false }
+                    })
+                })
+                || ast.items.iter().any(|item| {
+                    if let syn::Item::Impl(impl_block) = item {
+                        if let Some(trait_) = &impl_block.trait_ {
+                            if let Some(seg) = trait_.1.segments.last() {
+                                if seg.ident == "ParentElement" {
+                                    if let syn::Type::Path(tp) = &*impl_block.self_ty {
+                                        if let Some(seg) = tp.path.segments.last() {
+                                            return seg.ident.to_string() == struct_name;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    false
+                })
+            {
+                props.push(RawPropExtraction {
+                    name: "children".to_string(),
+                    raw_type: "Children".to_string(),
+                    has_default: false,
+                    is_event: false,
+                });
+            }
+
+            if props.is_empty() { continue; }
+
+            let line_start = code.lines()
+                .enumerate()
+                .find(|(_, line)| line.contains(&format!("struct {}", struct_name)))
+                .map(|(i, _)| i + 1)
+                .unwrap_or(0);
+            components.push(RawComponentExtraction {
+                name: struct_name,
+                line_start,
+                props,
+                is_struct_pattern: false,
+            });
+        }
+
         Ok(components)
     }
 }
