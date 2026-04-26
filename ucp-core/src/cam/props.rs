@@ -10,6 +10,9 @@ pub enum AbstractPropType {
     StaticValue(Box<AbstractPropType>),
     AsyncEventHandler(Vec<AbstractPropType>),
     Renderable,
+    /// Represents a spread of HTML attributes (e.g. Vec<Attribute> in Dioxus).
+    #[serde(rename = "spreadAttributes")]
+    SpreadAttributes,
     Any,
 }
 

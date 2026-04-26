@@ -29,3 +29,17 @@ fn serialize_conflict_with_profile_scoping() {
     let json = serde_json::to_string(&conflict).unwrap();
     assert!(json.contains("\"scopeToProfile\":\"web\""));
 }
+
+#[test]
+fn serialize_spread_attributes_variant() {
+    let prop = CanonicalAbstractProp {
+        canonical_name: "attributes".to_string(),
+        abstract_type: AbstractPropType::SpreadAttributes,
+        reactivity: AbstractReactivity::Static,
+        sources: vec![],
+        confidence: 1.0,
+        conflicts: vec![],
+    };
+    let json = serde_json::to_string(&prop).unwrap();
+    assert!(json.contains("\"spreadAttributes\""));
+}
