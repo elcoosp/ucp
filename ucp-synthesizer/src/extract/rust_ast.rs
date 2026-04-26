@@ -94,6 +94,8 @@ pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>
     // Combine results
     let mut all = fn_visitor.0;
     all.extend(struct_components);
+    let gpui_components = GpuiComponentVisitor::extract(code)?;
+    all.extend(gpui_components);
 
     Ok(all)
 }
@@ -223,5 +225,61 @@ impl Visit<'_> for StructComponentVisitor {
             }
         }
         syn::visit::visit_item_impl(self, item);
+    }
+}
+// PATCH-GPUI-VISITOR
+
+// ── GPUI visitor ──────────────────────────────────────────────────────────
+
+/// A visitor that extracts components from the GPUI framework.
+/// It looks for structs annotated with `#[derive(IntoElement)]` and treats
+/// their fields as props.
+pub struct GpuiComponentVisitor;
+
+impl GpuiComponentVisitor {
+    pub fn extract(code: &str) -> Result<Vec<RawComponentExtraction>> {
+        let mut components = Vec::new();
+        let ast = syn::parse_file(code)
+            .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
+
+        for item in &ast.items {
+            if let syn::Item::Struct(item_struct) = item {
+                if item_struct.attrs.iter().any(|attr| {
+                    if let syn::Meta::List(ml) = &attr.meta {
+                        if ml.path.is_ident("derive") {
+                            ml.tokens.to_string().contains("IntoElement")
+                        } else { false }
+                    } else { false }
+                }) {
+                    let mut props = Vec::new();
+                    for field in &item_struct.fields {
+                        let field_name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
+                        if field_name.is_empty() { continue; }
+                        let raw_type = field.ty.to_token_stream().to_string();
+                        let has_default = raw_type.trim().starts_with("Option");
+                        props.push(RawPropExtraction {
+                            name: field_name,
+                            raw_type,
+                            has_default,
+                        });
+                    }
+                    if props.is_empty() { continue; }
+
+                    let name = item_struct.ident.to_string();
+                    let line_start = code.lines()
+                        .enumerate()
+                        .find(|(_, line)| line.contains(&format!("struct {}", name)))
+                        .map(|(i, _)| i + 1)
+                        .unwrap_or(0);
+                    components.push(RawComponentExtraction {
+                        name,
+                        line_start,
+                        props,
+                        is_struct_pattern: false,
+                    });
+                }
+            }
+        }
+        Ok(components)
     }
 }
