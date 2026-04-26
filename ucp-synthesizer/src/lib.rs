@@ -6,4 +6,5 @@ pub mod merge;
 pub mod pipeline;
 pub mod security;
 pub mod unify;
+pub mod generate;
 pub mod utils;

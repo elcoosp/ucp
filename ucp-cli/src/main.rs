@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
     name = "ucp",
     about = "UCP v4.0 AI Unification Engine",
     version,
-    after_help = "EXAMPLES:\n    ucp bootstrap --source-dir ./src\n    ucp bootstrap --source-dir ./src --ollama-url http://localhost:11434 --llm-model llama3\n\n    ucp validate ucp-spec.json\n\n    ucp merge --input a.json --input b.json -o merged.json\n    ucp merge --input leptos.json --input react.json --input vue.json -o unified.json --html-dir ./review\n\n    ucp components ucp-spec.json\n    ucp components --format json ucp-spec.json\n    ucp components --filter \"Button\" ucp-spec.json\n    ucp components --filter \"^Button$|^Input$\" ucp-spec.json\n\n    ucp bootstrap --source-dir ./src --watch"
+    after_help = "EXAMPLES:\n    ucp bootstrap --source-dir ./src\n    ucp bootstrap --source-dir ./src --ollama-url http://localhost:11434 --llm-model llama3\n\n    ucp validate ucp-spec.json\n\n    ucp merge --input a.json --input b.json -o merged.json\n    ucp merge --input leptos.json --input react.json --input vue.json -o unified.json --html-dir ./review\n\n    ucp components ucp-spec.json\n    ucp components --format json ucp-spec.json\n    ucp components --filter \"Button\" ucp-spec.json\n    ucp components --filter \"^Button$|^Input$\" ucp-spec.json\n\n    ucp bootstrap --source-dir ./src --watch\n\n    ucp generate --spec ucp-spec.json --target dioxus --output ./generated"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -40,6 +40,19 @@ enum Commands {
         after_help = "EXAMPLES:\n    ucp validate ucp-spec.json\n    ucp validate ./ucp-output/merged.json"
     )]
     Validate { spec: PathBuf },
+
+    /// Generate code from a UCP spec file
+    #[command(
+        after_help = "EXAMPLES:\n    ucp generate --spec ucp-spec.json --target dioxus --output ./generated"
+    )]
+    Generate {
+        #[arg(long)]
+        spec: PathBuf,
+        #[arg(long, short = 't', default_value = "dioxus")]
+        target: String,
+        #[arg(long, short = 'o', default_value = "./generated")]
+        output: PathBuf,
+    },
 
     /// Merge multiple UCP spec files into a unified spec
     #[command(
@@ -84,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
             watch,
         } => cmd_bootstrap(&source_dir, &output_dir, ollama_url, &llm_model, watch).await,
         Commands::Validate { spec } => cmd_validate(&spec),
+        Commands::Generate { spec, target, output } => cmd_generate(&spec, &target, &output),
         Commands::Merge {
             input,
             output,
@@ -96,6 +110,24 @@ async fn main() -> anyhow::Result<()> {
             verbose,
         } => cmd_components(&spec, &format, verbose, &filter),
     }
+}
+
+fn cmd_generate(spec: &Path, target: &str, output: &Path) -> anyhow::Result<()> {
+    use ucp_core::cam::PackageManifest;
+    let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
+    let manifest: PackageManifest = serde_json::from_str(&content).context("Invalid spec format")?;
+    match target {
+        "dioxus" => {
+            ucp_synthesizer::generate::dioxus::generate_dioxus(
+                &manifest,
+                &output.to_string_lossy(),
+            )
+            .context("Failed to generate Dioxus code")?;
+            println!("Generated Dioxus code in {}", output.display());
+        }
+        _ => anyhow::bail!("Unsupported target: {}. Supported: dioxus", target),
+    }
+    Ok(())
 }
 
 async fn cmd_bootstrap(
