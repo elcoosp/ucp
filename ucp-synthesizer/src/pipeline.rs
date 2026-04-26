@@ -444,7 +444,8 @@ fn unify_rust_component(
         .props
         .iter()
         .map(|rp| {
-            let cam_type = map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any);
+// CAM-TYPE-REPLACE-MARKER
+            let cam_type = if rp.is_spread_attributes { AbstractPropType::SpreadAttributes } else { map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any) };
                     let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
             let reactivity = derive_reactivity(&cam_type, rp.has_default);
             CanonicalAbstractProp {
@@ -638,7 +639,8 @@ impl SynthesisOutput {
 
 fn unify_rust_component_struct(raw: &rust_ast::RawComponentExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
     let props: Vec<CanonicalAbstractProp> = raw.props.iter().map(|rp| {
-        let cam_type = map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any);
+// CAM-TYPE-REPLACE-MARKER
+        let cam_type = if rp.is_spread_attributes { AbstractPropType::SpreadAttributes } else { map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any) };
                     let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
         let reactivity = derive_reactivity(&cam_type, rp.has_default);
         CanonicalAbstractProp {

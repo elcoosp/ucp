@@ -2,6 +2,8 @@ use quote::ToTokens;
 use syn::{parse_file, visit::Visit, FnArg, ItemFn, Meta, Pat};
 use ucp_core::Result;
 
+use super::dioxus_ast;
+
 #[derive(Debug, Clone)]
 pub struct RawComponentExtraction {
     pub name: String,
@@ -16,6 +18,7 @@ pub struct RawPropExtraction {
     pub raw_type: String,
     pub has_default: bool,
     pub is_event: bool,
+    pub is_spread_attributes: bool,
 }
 
 struct ComponentVisitor(Vec<RawComponentExtraction>);
@@ -41,9 +44,6 @@ impl Visit<'_> for ComponentVisitor {
                     continue;
                 };
 
-                // Use ToTokens to get the source-level type string (e.g. "bool",
-                // "MaybeSignal<String>") instead of syn's Debug which prints AST
-                // structure (e.g. "Type::Path { ... }").
                 let raw_type = pat_type.ty.to_token_stream().to_string().replace(" ", "");
                 let has_default = pat_type.attrs.iter().any(|attr| {
                     if let Meta::List(list) = &attr.meta {
@@ -58,11 +58,11 @@ impl Visit<'_> for ComponentVisitor {
                     raw_type,
                     has_default,
                     is_event: false,
+                    is_spread_attributes: false,
                 });
             }
         }
 
-        // line_start is set to 0 here; post-processed after visiting.
         self.0.push(RawComponentExtraction {
             name,
             line_start: 0,
@@ -73,14 +73,11 @@ impl Visit<'_> for ComponentVisitor {
 }
 
 pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>> {
-    // Parse the AST once for both visitors
     let ast = parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
 
-    // Original visitor for #[component] functions
     let mut fn_visitor = ComponentVisitor(Vec::new());
     syn::visit::visit_file(&mut fn_visitor, &ast);
 
-    // Compute line_start for fn-based components (existing logic)
     for comp in &mut fn_visitor.0 {
         if comp.line_start == 0 {
             let search = format!("fn {}", comp.name);
@@ -90,27 +87,27 @@ pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>
         }
     }
 
-    // New visitor for struct-props pattern
     let struct_components = StructComponentVisitor::extract(code)?;
+    let gpui_components = GpuiComponentVisitor::extract(code)?;
+    let dioxus_components = dioxus_ast::extract_dioxus_components(code)?;
 
-    // Combine results
     let mut all = fn_visitor.0;
     all.extend(struct_components);
-    let gpui_components = GpuiComponentVisitor::extract(code)?;
     all.extend(gpui_components);
+    all.extend(dioxus_components);
 
-    Ok(all)
+    // Deduplicate by component name, preferring later entries (struct-pattern / Dioxus)
+    let mut seen = std::collections::HashMap::new();
+    for comp in all {
+        seen.insert(comp.name.clone(), comp);
+    }
+    let deduped: Vec<_> = seen.into_values().collect();
+
+    Ok(deduped)
 }
 
 // ── Struct-props visitor ──────────────────────────────────────────────────
 
-/// A visitor that extracts components defined via the struct-props pattern.
-///
-/// Recognised pattern:
-///   pub struct <Name>Props { ... }
-///   impl <Name> {
-///       pub fn render(props: <Name>Props) -> impl IntoView { ... }
-///   }
 pub struct StructComponentVisitor {
     pub components: Vec<RawComponentExtraction>,
     props_structs: std::collections::HashMap<String, (String, Vec<RawPropExtraction>, usize)>,
@@ -131,7 +128,6 @@ impl StructComponentVisitor {
     }
 }
 
-/// Extract a simple type name from a `syn::Type`, handling paths and generics.
 fn extract_type_name(ty: &syn::Type) -> String {
     match ty {
         syn::Type::Path(type_path) => type_path
@@ -167,13 +163,14 @@ impl Visit<'_> for StructComponentVisitor {
             if field_name.is_empty() {
                 continue;
             }
-                let raw_type = crate::utils::normalize_type_string(&field.ty.to_token_stream().to_string());
+            let raw_type = crate::utils::normalize_type_string(&field.ty.to_token_stream().to_string());
             let has_default = raw_type.trim().starts_with("Option");
             props.push(RawPropExtraction {
                 name: field_name,
                 raw_type,
                 has_default,
                 is_event: false,
+                is_spread_attributes: false,
             });
         }
         if props.is_empty() {
@@ -230,16 +227,11 @@ impl Visit<'_> for StructComponentVisitor {
         syn::visit::visit_item_impl(self, item);
     }
 }
-// PATCH-GPUI-VISITOR
 
+// PATCH-GPUI-VISITOR
 
 // ── GPUI visitor ──────────────────────────────────────────────────────────
 
-/// A visitor that extracts components from the GPUI framework.
-/// It looks for structs annotated with `#[derive(IntoElement)]` and treats
-/// their fields as props. It also scans impl blocks for builder methods,
-/// detects event callbacks, and adds a `children` prop for components
-/// implementing `ParentElement`.
 pub struct GpuiComponentVisitor;
 
 impl GpuiComponentVisitor {
@@ -248,7 +240,6 @@ impl GpuiComponentVisitor {
             .map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
         let mut components: Vec<RawComponentExtraction> = Vec::new();
 
-        // ---------- pass 1: detect structs and their fields ----------
         let mut struct_candidates: Vec<(&syn::Item, &syn::ItemStruct)> = Vec::new();
         for item in &ast.items {
             if let syn::Item::Struct(item_struct) = item {
@@ -264,7 +255,6 @@ impl GpuiComponentVisitor {
             }
         }
 
-        // ---------- collect impl blocks per type name ----------
         let mut impl_methods: std::collections::HashMap<String, Vec<&syn::ImplItem>> = std::collections::HashMap::new();
         for item in &ast.items {
             if let syn::Item::Impl(impl_block) = item {
@@ -278,12 +268,10 @@ impl GpuiComponentVisitor {
             }
         }
 
-        // ---------- pass 2: build components ----------
         for (_, item_struct) in struct_candidates {
             let struct_name = item_struct.ident.to_string();
             let mut props: Vec<RawPropExtraction> = Vec::new();
 
-            // add field‑based props (overridden later by builder methods)
             for field in &item_struct.fields {
                 let field_name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
                 if field_name.is_empty() { continue; }
@@ -294,16 +282,15 @@ impl GpuiComponentVisitor {
                     raw_type,
                     has_default,
                     is_event: false,
+                    is_spread_attributes: false,
                 });
             }
 
-            // apply builder methods from impl blocks (override field props)
             if let Some(methods) = impl_methods.get(&struct_name) {
                 for item_impl in methods {
                     if let syn::ImplItem::Fn(method) = item_impl {
-                        // builder pattern: fn name(mut self, arg: T) -> Self
-                        if method.sig.inputs.len() != 2 { continue; }      // self + one param
-                        if method.sig.ident == "new" { continue; }          // skip constructor
+                        if method.sig.inputs.len() != 2 { continue; }
+                        if method.sig.ident == "new" { continue; }
                         let is_mut_self = matches!(method.sig.inputs.first(), Some(syn::FnArg::Receiver(r)) if r.mutability.is_some());
                         if !is_mut_self { continue; }
 
@@ -311,39 +298,35 @@ impl GpuiComponentVisitor {
                             syn::FnArg::Typed(pt) => pt,
                             _ => continue,
                         };
-                        let arg_type = crate::utils::normalize_type_string(&param.ty.to_token_stream().to_string()); // external type, normalized
+                        let arg_type = crate::utils::normalize_type_string(&param.ty.to_token_stream().to_string());
 
-                        // check for event‑like patterns
                         let is_event = arg_type.contains("Fn") || arg_type.contains("Callback") ||
                             arg_type.contains("fn(") || method.sig.ident.to_string().starts_with("on_");
 
-                        // match to a struct field (builders usually set a same‑named field)
                         let mut matched_field = false;
                         for prop in &mut props {
                             if prop.name == method.sig.ident.to_string() {
-                                prop.raw_type = arg_type.clone();  // use method's type, more accurate
-                                prop.has_default = false;          // builder must be called explicitly
+                                prop.raw_type = arg_type.clone();
+                                prop.has_default = false;
                                 prop.is_event = is_event;
                                 matched_field = true;
                                 break;
                             }
                         }
 
-                        // if no field matches, still add a prop (new) – might be variant setter but we skip those
-                        // for now, only add if it's an event (e.g., on_click without explicit field)
                         if !matched_field && is_event {
                             props.push(RawPropExtraction {
                                 name: method.sig.ident.to_string(),
                                 raw_type: arg_type,
                                 has_default: false,
                                 is_event: true,
+                                is_spread_attributes: false,
                             });
                         }
                     }
                 }
             }
 
-            // ---------- children detection via ParentElement impl ----------
             if impl_methods.get(&struct_name)
                 .map_or(false, |methods| {
                     methods.iter().any(|m| {
@@ -374,6 +357,7 @@ impl GpuiComponentVisitor {
                     raw_type: "Children".to_string(),
                     has_default: false,
                     is_event: false,
+                    is_spread_attributes: false,
                 });
             }
 
@@ -396,28 +380,22 @@ impl GpuiComponentVisitor {
         Ok(components)
     }
 
-    /// Group multiple methods that set the same struct field into a single
-    /// "variant" prop with the method names as enum values.
     fn group_variant_props(props: &mut Vec<RawPropExtraction>) {
         use std::collections::HashMap;
         let mut field_setters: HashMap<String, Vec<String>> = HashMap::new();
-        // collect all method names that target the same field
         for p in props.iter() {
             let parts: Vec<&str> = p.name.splitn(2, '_').collect();
             if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
                 field_setters.entry(parts[0].to_string()).or_default().push(parts[1].to_string());
             }
         }
-        // for each field that has multiple setters, replace them with a single variant prop
         let mut to_remove = Vec::new();
         for (field, variants) in field_setters.iter() {
             if variants.len() > 1 {
-                // create the variant prop
                 let enum_values = variants.join(" | ");
                 let default = props.iter()
                     .find(|p| p.name == format!("{}_default", field) || p.name == *field)
-                    .map(|p| if p.has_default { Some(p.name.clone()) } else { None })
-                    .flatten();
+                    .and_then(|p| if p.has_default { Some(p.name.clone()) } else { None });
                 to_remove.extend(props.iter().enumerate().filter(|(_, p)| p.name.starts_with(field)).map(|(i, _)| i));
                 props.retain(|p| !p.name.starts_with(field));
                 props.push(RawPropExtraction {
@@ -425,6 +403,7 @@ impl GpuiComponentVisitor {
                     raw_type: format!("enum {{ {} }}", enum_values),
                     has_default: default.is_some(),
                     is_event: false,
+                    is_spread_attributes: false,
                 });
             }
         }

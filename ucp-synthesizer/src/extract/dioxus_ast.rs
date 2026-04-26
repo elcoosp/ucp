@@ -1,4 +1,5 @@
 use syn::{parse_file, visit::Visit, FnArg, ItemFn, ItemStruct};
+use quote::ToTokens;
 use ucp_core::Result;
 
 use super::rust_ast::{RawComponentExtraction, RawPropExtraction};
@@ -81,7 +82,6 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
                 }
             });
 
-            // Detect spread attributes: #[props(extends = GlobalAttributes)] on attributes: Vec<Attribute>
             let is_spread_attributes = field.attrs.iter().any(|a| {
                 if let syn::Meta::List(ml) = &a.meta {
                     if ml.path.is_ident("props") {
@@ -127,7 +127,6 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
             return;
         }
 
-        // Dioxus component must have exactly one typed parameter
         if func.sig.inputs.len() != 1 {
             return;
         }
@@ -139,13 +138,12 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
 
         let param_type_name = normalize_type_string(&param.ty.to_token_stream().to_string());
 
-        // If the parameter type name matches a known Props struct, extract it.
         if let Some((props, line_start)) = self.props_structs.remove(&param_type_name) {
             self.components.push(RawComponentExtraction {
                 name: func.sig.ident.to_string(),
                 line_start,
                 props,
-                is_struct_pattern: true,  // treat as struct pattern for unification
+                is_struct_pattern: true,
             });
         }
     }
