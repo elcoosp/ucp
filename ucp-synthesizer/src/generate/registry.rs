@@ -1,10 +1,10 @@
+use super::common::to_snake_case;
+use super::dioxus::generate_component_code;
+use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use serde::Serialize;
 use ucp_core::cam::*;
 use ucp_core::Result;
-use super::dioxus::generate_component_code;
-use super::common::to_snake_case;
 
 // ── Full shadcn CLI v4 schema types ─────────────────────────────────────
 
@@ -35,7 +35,7 @@ struct RegistryItem {
     schema: Option<String>,
     name: String,
     #[serde(rename = "type")]
-    item_type: String,   // "registry:ui", "registry:base", "registry:font"
+    item_type: String, // "registry:ui", "registry:base", "registry:font"
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,7 +128,9 @@ pub fn generate_registry(
     let index = RegistryIndex {
         schema: "https://ui.shadcn.com/schema/registry.json".to_string(),
         name: namespace.unwrap_or(&manifest.name).to_string(),
-        homepage: homepage.unwrap_or(&format!("https://github.com/{}", manifest.name)).to_string(),
+        homepage: homepage
+            .unwrap_or(&format!("https://github.com/{}", manifest.name))
+            .to_string(),
         items,
         preset: None,
     };
@@ -142,7 +144,7 @@ pub fn generate_registry(
 /// Generate a `registry:base` item that bundles all components + global assets.
 pub fn generate_registry_base(
     manifest: &PackageManifest,
-    _tokens: Option<&serde_json::Value>,  // DTCG tokens placeholder
+    _tokens: Option<&serde_json::Value>, // DTCG tokens placeholder
     output_dir: &str,
     namespace: Option<&str>,
     author: Option<&str>,
@@ -209,7 +211,9 @@ pub fn generate_registry_base(
     let index = RegistryIndex {
         schema: "https://ui.shadcn.com/schema/registry.json".to_string(),
         name: namespace.unwrap_or(&manifest.name).to_string(),
-        homepage: homepage.unwrap_or(&format!("https://github.com/{}", manifest.name)).to_string(),
+        homepage: homepage
+            .unwrap_or(&format!("https://github.com/{}", manifest.name))
+            .to_string(),
         items: vec![item],
         preset: None, // populated when tokens are available
     };
@@ -254,7 +258,9 @@ fn find_component_reference(
 ) -> Option<String> {
     for other in all_comps {
         let other_name = other.id.rsplit(':').next().unwrap_or("");
-        if other_name.is_empty() || other_name == own_name { continue; }
+        if other_name.is_empty() || other_name == own_name {
+            continue;
+        }
         if contains_word(concrete_type, other_name) {
             return Some(to_snake_case(other_name));
         }
@@ -265,24 +271,40 @@ fn find_component_reference(
 fn contains_word(haystack: &str, needle: &str) -> bool {
     if let Some(pos) = haystack.find(needle) {
         let after = &haystack[pos + needle.len()..];
-        after.is_empty() || after.starts_with('>') || after.starts_with('<') || after.starts_with(',') || after.starts_with(' ') || after.starts_with(';')
-    } else { false }
+        after.is_empty()
+            || after.starts_with('>')
+            || after.starts_with('<')
+            || after.starts_with(',')
+            || after.starts_with(' ')
+            || after.starts_with(';')
+    } else {
+        false
+    }
 }
 
 fn humanize_name(name: &str) -> String {
     let mut result = String::new();
     for c in name.chars() {
-        if c == '_' || c == '-' { result.push(' '); }
-        else if c.is_uppercase() && !result.is_empty() { result.push(' '); result.push(c); }
-        else { result.push(c); }
+        if c == '_' || c == '-' {
+            result.push(' ');
+        } else if c.is_uppercase() && !result.is_empty() {
+            result.push(' ');
+            result.push(c);
+        } else {
+            result.push(c);
+        }
     }
     result
 }
 
 fn infer_npm_deps(manifest: &PackageManifest) -> Vec<String> {
     let mut deps = Vec::new();
-    if manifest.frameworks.iter().any(|f| f == "dioxus") { deps.push("dioxus@0.7".to_string()); }
-    if manifest.frameworks.iter().any(|f| f == "leptos") { deps.push("@leptos/core@0.7".to_string()); }
+    if manifest.frameworks.iter().any(|f| f == "dioxus") {
+        deps.push("dioxus@0.7".to_string());
+    }
+    if manifest.frameworks.iter().any(|f| f == "leptos") {
+        deps.push("@leptos/core@0.7".to_string());
+    }
     deps
 }
 
@@ -349,7 +371,15 @@ mod tests {
     fn generate_registry_base_produces_single_item() {
         let tmp = tempfile::TempDir::new().unwrap();
         let manifest = make_test_manifest();
-        generate_registry_base(&manifest, None, &tmp.path().to_string_lossy(), None, None, None).unwrap();
+        generate_registry_base(
+            &manifest,
+            None,
+            &tmp.path().to_string_lossy(),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         let content = std::fs::read_to_string(tmp.path().join("registry.json")).unwrap();
         assert!(content.contains("\"registry:base\""));

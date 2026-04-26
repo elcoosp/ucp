@@ -1,13 +1,13 @@
+use crate::pipeline::SynthesisOutput;
+use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use serde::Serialize;
-use crate::pipeline::SynthesisOutput;
 use ucp_core::Result;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgUiSchema {
-    pub protocol: String,       // "ag-ui/v1"
+    pub protocol: String, // "ag-ui/v1"
     pub events: Vec<AgUiEvent>,
 }
 
@@ -16,7 +16,7 @@ pub struct AgUiSchema {
 pub struct AgUiEvent {
     pub component: String,
     pub event: String,
-    pub event_type: String,     // e.g., "component.click"
+    pub event_type: String, // e.g., "component.click"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload: Option<String>,
 }
@@ -44,10 +44,8 @@ pub fn export_ag_ui(spec: &SynthesisOutput, output_dir: &str) -> Result<()> {
         events,
     };
 
-    let json = serde_json::to_string_pretty(&schema)
-        .map_err(ucp_core::UcpError::Json)?;
-    fs::write(dir.join("ag-ui-events.json"), json)
-        .map_err(ucp_core::UcpError::Io)?;
+    let json = serde_json::to_string_pretty(&schema).map_err(ucp_core::UcpError::Json)?;
+    fs::write(dir.join("ag-ui-events.json"), json).map_err(ucp_core::UcpError::Io)?;
 
     Ok(())
 }
@@ -55,14 +53,17 @@ pub fn export_ag_ui(spec: &SynthesisOutput, output_dir: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ucp_core::cam::*;
     use crate::pipeline::PipelineStats;
+    use ucp_core::cam::*;
 
     #[test]
     fn ag_ui_export_contains_all_component_events() {
         let comp1 = CanonicalAbstractComponent {
             id: "rust:button.rs:Button".into(),
-            semantic_fingerprint: SemanticFingerprint { purpose_hash: "a".into(), normalized_prop_names: vec![] },
+            semantic_fingerprint: SemanticFingerprint {
+                purpose_hash: "a".into(),
+                normalized_prop_names: vec![],
+            },
             props: vec![],
             events: vec![CanonicalAbstractEvent {
                 canonical_name: "click".to_string(),
@@ -76,11 +77,20 @@ mod tests {
         };
         let comp2 = CanonicalAbstractComponent {
             id: "rust:dialog.rs:Dialog".into(),
-            semantic_fingerprint: SemanticFingerprint { purpose_hash: "b".into(), normalized_prop_names: vec![] },
+            semantic_fingerprint: SemanticFingerprint {
+                purpose_hash: "b".into(),
+                normalized_prop_names: vec![],
+            },
             props: vec![],
             events: vec![
-                CanonicalAbstractEvent { canonical_name: "open".into(), abstract_payload: AbstractPropType::AsyncEventHandler(vec![]) },
-                CanonicalAbstractEvent { canonical_name: "close".into(), abstract_payload: AbstractPropType::AsyncEventHandler(vec![]) },
+                CanonicalAbstractEvent {
+                    canonical_name: "open".into(),
+                    abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),
+                },
+                CanonicalAbstractEvent {
+                    canonical_name: "close".into(),
+                    abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),
+                },
             ],
             extracted_state_machine: None,
             extracted_parts: vec![],
@@ -92,8 +102,11 @@ mod tests {
             ucp_version: "4.0.0".into(),
             components: vec![comp1, comp2],
             stats: PipelineStats {
-                files_scanned: 0, files_parsed: 0, components_found: 2,
-                conflicts_detected: 0, llm_enriched: false,
+                files_scanned: 0,
+                files_parsed: 0,
+                components_found: 2,
+                conflicts_detected: 0,
+                llm_enriched: false,
             },
         };
         let tmp = tempfile::TempDir::new().unwrap();

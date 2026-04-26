@@ -1,7 +1,7 @@
+use crate::pipeline::SynthesisOutput;
+use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use serde::Serialize;
-use crate::pipeline::SynthesisOutput;
 use ucp_core::cam::*;
 use ucp_core::Result;
 
@@ -72,10 +72,8 @@ pub fn export_a2ui(
         components: spec.components.iter().map(cam_to_a2ui).collect(),
     };
 
-    let json = serde_json::to_string_pretty(&catalog)
-        .map_err(ucp_core::UcpError::Json)?;
-    fs::write(dir.join("a2ui-catalog.json"), json)
-        .map_err(ucp_core::UcpError::Io)?;
+    let json = serde_json::to_string_pretty(&catalog).map_err(ucp_core::UcpError::Json)?;
+    fs::write(dir.join("a2ui-catalog.json"), json).map_err(ucp_core::UcpError::Io)?;
     Ok(())
 }
 
@@ -88,18 +86,26 @@ fn cam_to_a2ui(comp: &CanonicalAbstractComponent) -> A2uiComponent {
         props: comp.props.iter().map(cam_prop_to_a2ui).collect(),
         events: comp.events.iter().map(cam_event_to_a2ui).collect(),
         variants: extract_variants(comp),
-        state_machine: comp.extracted_state_machine.as_ref().map(|sm| {
-            format!("{} (initial: {})", sm.id, sm.initial)
-        }),
+        state_machine: comp
+            .extracted_state_machine
+            .as_ref()
+            .map(|sm| format!("{} (initial: {})", sm.id, sm.initial)),
     }
 }
 
 fn cam_prop_to_a2ui(p: &CanonicalAbstractProp) -> A2uiProp {
     A2uiProp {
         name: p.canonical_name.clone(),
-        prop_type: p.concrete_type.clone().unwrap_or_else(|| format!("{:?}", p.abstract_type)),
+        prop_type: p
+            .concrete_type
+            .clone()
+            .unwrap_or_else(|| format!("{:?}", p.abstract_type)),
         required: p.reactivity != AbstractReactivity::Static,
-        default: if p.reactivity == AbstractReactivity::Static { Some("default".to_string()) } else { None },
+        default: if p.reactivity == AbstractReactivity::Static {
+            Some("default".to_string())
+        } else {
+            None
+        },
         enum_values: extract_enum_values(p),
         description: p.concrete_type.clone(),
     }
@@ -117,7 +123,8 @@ fn extract_variants(comp: &CanonicalAbstractComponent) -> Vec<A2uiVariant> {
     for p in &comp.props {
         if let Some(conc) = &p.concrete_type {
             if conc.starts_with("enum: ") {
-                let values: Vec<String> = conc[6..].split(',').map(|s| s.trim().to_string()).collect();
+                let values: Vec<String> =
+                    conc[6..].split(',').map(|s| s.trim().to_string()).collect();
                 variants.push(A2uiVariant {
                     name: p.canonical_name.clone(),
                     values,
