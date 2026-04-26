@@ -15,3 +15,4 @@ pub use types::{
     CanonicalAbstractComponent, CanonicalAbstractEvent, CanonicalAbstractProp, ExtractedPart,
     PropSourceMapping, SourceAttribution,
 };
+pub use types::PackageManifest;

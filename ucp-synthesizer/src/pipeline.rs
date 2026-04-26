@@ -726,6 +726,23 @@ impl SynthesisOutput {
         std::fs::write(path, json).map_err(ucp_core::UcpError::Io)?;
         Ok(())
     }
+    /// Build a PackageManifest from this synthesis output.
+    pub fn to_package_manifest(
+        &self,
+        name: &str,
+        version: &str,
+        frameworks: Vec<String>,
+    ) -> ucp_core::cam::PackageManifest {
+        ucp_core::cam::PackageManifest {
+            name: name.to_string(),
+            version: version.to_string(),
+            frameworks,
+            components: self.components.clone(),
+            global_styles: None,
+            generated_by: format!("ucp v{}", self.ucp_version),
+            generated_at: "generated_at_placeholder".to_string(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

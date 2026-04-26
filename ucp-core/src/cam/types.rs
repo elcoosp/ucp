@@ -63,3 +63,27 @@ pub struct SourceAttribution {
     pub file_path: String,
     pub line_start: usize,
 }
+
+// -------------------------------------------------------------------------
+// Package Manifest
+// -------------------------------------------------------------------------
+
+/// Metadata for a library of UI components (e.g., shadcn‑dioxus, MUI).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackageManifest {
+    /// The library name (e.g., "shadcn-dioxus").
+    pub name: String,
+    /// Version of the library at extraction time.
+    pub version: String,
+    /// Frameworks / platforms supported.
+    pub frameworks: Vec<String>,
+    /// List of component definitions exported by this library.
+    pub components: Vec<CanonicalAbstractComponent>,
+    /// Optional global styles, theming tokens, etc.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub global_styles: Option<String>,
+    /// The extraction tool and version.
+    pub generated_by: String,
+    /// Timestamp of generation (ISO 8601).
+    pub generated_at: String,
+}
