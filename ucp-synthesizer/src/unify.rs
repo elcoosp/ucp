@@ -1,54 +1,66 @@
 use ucp_core::{cam::AbstractPropType, Result};
 
-/// Map a raw type string (e.g. from ToTokens output) to the CAM AbstractPropType
-/// using strict pattern matching rules.
+/// Map a raw type string to CAM abstract type, and also produce a normalised concrete type.
 pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
-    // Normalize: syn's ToTokens puts spaces around angle brackets:
-    //   "RwSignal < String >", "MaybeSignal < bool >", "Option < Vec < String > >"
-    // Remove all spaces for consistent matching.
+    let (abstract_type, _) = map_raw_type_with_concrete(raw_type)?;
+    Ok(abstract_type)
+}
+
+/// Same as map_raw_type_to_cam, but also returns an optional concrete type string.
+pub fn map_raw_type_with_concrete(raw_type: &str) -> Result<(AbstractPropType, Option<String>)> {
     let clean = raw_type.replace(' ', "");
+    let concrete = Some(clean.clone()); // default concrete is the cleaned type
 
     // Reactive signal wrappers → ControlledValue(inner)
     if clean.starts_with("RwSignal<") || clean.starts_with("Signal<") {
         let inner = extract_generic_inner(&clean);
-        return Ok(AbstractPropType::ControlledValue(Box::new(
-            map_raw_type_to_cam(&inner)?,
-        )));
+        let (inner_abs, inner_conc) = map_raw_type_with_concrete(&inner)?;
+        return Ok((
+            AbstractPropType::ControlledValue(Box::new(inner_abs)),
+            inner_conc.map(|c| format!("Signal<{}>", c)),
+        ));
     }
 
     // Maybe-reactive wrappers → UncontrolledValue(inner)
     if clean.starts_with("MaybeSignal<") || clean.starts_with("MaybeProp<") {
         let inner = extract_generic_inner(&clean);
-        return Ok(AbstractPropType::UncontrolledValue(Box::new(
-            map_raw_type_to_cam(&inner)?,
-        )));
+        let (inner_abs, inner_conc) = map_raw_type_with_concrete(&inner)?;
+        return Ok((
+            AbstractPropType::UncontrolledValue(Box::new(inner_abs)),
+            inner_conc.map(|c| format!("MaybeSignal<{}>", c)),
+        ));
     }
 
     // Option<T> → UncontrolledValue(inner)
     if clean.starts_with("Option<") {
         let inner = extract_generic_inner(&clean);
-        return Ok(AbstractPropType::UncontrolledValue(Box::new(
-            map_raw_type_to_cam(&inner)?,
-        )));
+        let (inner_abs, inner_conc) = map_raw_type_with_concrete(&inner)?;
+        return Ok((
+            AbstractPropType::UncontrolledValue(Box::new(inner_abs)),
+            inner_conc.map(|c| format!("Option<{}>", c)),
+        ));
     }
 
     // Vec<T>, Array<T> → StaticValue(inner)
     if clean.starts_with("Vec<") || clean.starts_with("Array<") {
         let inner = extract_generic_inner(&clean);
-        return Ok(AbstractPropType::StaticValue(Box::new(
-            map_raw_type_to_cam(&inner)?,
-        )));
+        let (inner_abs, inner_conc) = map_raw_type_with_concrete(&inner)?;
+        return Ok((
+            AbstractPropType::StaticValue(Box::new(inner_abs)),
+            inner_conc.map(|c| format!("Vec<{}>", c)),
+        ));
     }
 
-    // Record<K, V>, HashMap<K, V>, BTreeMap<K, V>, Map<K, V> → StaticValue(Any)
+    // Record / Map → StaticValue(Any)
     if clean.starts_with("Record<")
         || clean.starts_with("HashMap<")
         || clean.starts_with("BTreeMap<")
         || clean.starts_with("Map<")
     {
-        return Ok(AbstractPropType::StaticValue(Box::new(
-            AbstractPropType::Any,
-        )));
+        return Ok((
+            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
+            Some(clean.to_string()),
+        ));
     }
 
     // Callback / event handler patterns → AsyncEventHandler
@@ -56,13 +68,9 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
         || clean.starts_with("EventHandler<")
         || clean.starts_with("Fn(")
         || clean.starts_with("fn(")
+        || clean.contains("=>")
     {
-        return Ok(AbstractPropType::AsyncEventHandler(vec![]));
-    }
-
-    // Arrow function patterns (TSX)
-    if clean.contains("=>") {
-        return Ok(AbstractPropType::AsyncEventHandler(vec![]));
+        return Ok((AbstractPropType::AsyncEventHandler(vec![]), Some(clean.to_string())));
     }
 
     // Renderable children / slots → Renderable
@@ -76,28 +84,42 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
         || clean.contains("HtmlElement")
         || clean == "VNode"
     {
-        return Ok(AbstractPropType::Renderable);
+        return Ok((AbstractPropType::Renderable, Some(clean.to_string())));
     }
 
     // Leaf types
     match clean.as_str() {
-        "bool" => Ok(AbstractPropType::ControlFlag),
-        "String" | "&str" | "SharedString" | "Cow<str>" => Ok(AbstractPropType::StaticValue(
-            Box::new(AbstractPropType::Any),
+        "bool" => Ok((AbstractPropType::ControlFlag, Some("bool".to_string()))),
+        "String" | "&str" | "SharedString" | "Cow<str>" => Ok((
+            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
+            Some("String".to_string()),
         )),
         "usize" | "isize" | "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "f32"
-        | "f64" => Ok(AbstractPropType::StaticValue(Box::new(
-            AbstractPropType::Any,
-        ))),
-        // impl Into<T> → StaticValue(Any) (converts to owned type)
-        clean if clean.starts_with("implInto<") => Ok(AbstractPropType::StaticValue(Box::new(AbstractPropType::Any))),
-        // impl Fn(...) or fn(...) patterns → AsyncEventHandler
-        clean if clean.starts_with("implFn(") || clean.starts_with("implfor<") || clean.starts_with("fn(") => Ok(AbstractPropType::AsyncEventHandler(vec![])),
+        | "f64" => Ok((
+            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
+            Some(clean.clone()),
+        )),
+        // impl Into<T> → StaticValue(Any)
+        clean if clean.starts_with("implInto<") => Ok((
+            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
+            Some(clean.to_string()),
+        )),
+        // impl Fn(...) → AsyncEventHandler
+        clean if clean.starts_with("implFn(") || clean.starts_with("implfor<") || clean.starts_with("fn(") => Ok((
+            AbstractPropType::AsyncEventHandler(vec![]),
+            Some(clean.to_string()),
+        )),
         // Box<dyn Fn...> → AsyncEventHandler
-        clean if clean.starts_with("Box<dynFn(") || clean.starts_with("Box<dynfor<") => Ok(AbstractPropType::AsyncEventHandler(vec![])),
-        // unknown type starting with uppercase → StaticValue(Any) (likely an enum or struct)
-        clean if clean.chars().next().map_or(false, |c| c.is_uppercase()) => Ok(AbstractPropType::StaticValue(Box::new(AbstractPropType::Any))),
-        _ => Ok(AbstractPropType::Any),
+        clean if clean.starts_with("Box<dynFn(") || clean.starts_with("Box<dynfor<") => Ok((
+            AbstractPropType::AsyncEventHandler(vec![]),
+            Some(clean.to_string()),
+        )),
+        // unknown type starting with uppercase → StaticValue(Any) with concrete
+        clean if clean.chars().next().map_or(false, |c| c.is_uppercase()) => Ok((
+            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
+            Some(clean.to_string()),
+        )),
+        _ => Ok((AbstractPropType::Any, Some(clean.to_string()))),
     }
 }
 
@@ -221,5 +243,27 @@ mod tests {
             },
             other => panic!("Expected UncontrolledValue, got {:?}", other),
         }
+    }
+
+    // New tests for concrete type return
+    #[test]
+    fn concrete_type_for_bool() {
+        let (abs, conc) = map_raw_type_with_concrete("bool").unwrap();
+        assert_eq!(abs, AbstractPropType::ControlFlag);
+        assert_eq!(conc, Some("bool".to_string()));
+    }
+
+    #[test]
+    fn concrete_type_for_string() {
+        let (abs, conc) = map_raw_type_with_concrete("String").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
+        assert_eq!(conc, Some("String".to_string()));
+    }
+
+    #[test]
+    fn concrete_type_for_enum() {
+        let (abs, conc) = map_raw_type_with_concrete("ButtonVariant").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
+        assert_eq!(conc, Some("ButtonVariant".to_string()));
     }
 }

@@ -40,15 +40,15 @@ test-perf:
 # =============================================================================
 
 bootstrap *ARGS:
-    cargo run --release -- bootstrap "{{ ARGS }}"
+    cargo run --release -- bootstrap {{ ARGS }}
 
 validate *ARGS:
-    cargo run --release -- validate "{{ ARGS }}"
+    cargo run --release -- validate {{ ARGS }}
 
 merge *ARGS:
-    cargo run --release -- merge "{{ ARGS }}"
+    cargo run --release -- merge {{ ARGS }}
 
 components *ARGS:
-    cargo run --release -- components "{{ ARGS }}"
+    cargo run --release -- components {{ ARGS }}
 wr:
     watchexec -w ./wr.sh --clear -r "sh ./wr.sh"

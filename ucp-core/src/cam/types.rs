@@ -25,6 +25,10 @@ pub struct CanonicalAbstractProp {
     pub canonical_name: String,
     pub abstract_type: super::AbstractPropType,
     pub reactivity: super::AbstractReactivity,
+    /// The normalised concrete type (e.g. "String", "bool", "enum: Default, Destructive").
+    /// Preserves original type information beyond the abstract mapping.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concrete_type: Option<String>,
     pub sources: Vec<super::PropSourceMapping>,
     pub confidence: f32,
     pub conflicts: Vec<super::Conflict>,

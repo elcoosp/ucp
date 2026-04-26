@@ -8,7 +8,7 @@ use crate::extract::rust_ast::{self, RawComponentExtraction};
 use crate::extract::tsx_ast::{self, RawTsxExtraction};
 use crate::llm::{build_enrichment_prompt, infer_behavior, parse_enrichment_response};
 use crate::security::is_path_safe_to_parse;
-use crate::unify::map_raw_type_to_cam;
+use crate::unify::{map_raw_type_to_cam, map_raw_type_with_concrete};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[must_use = "discarding synthesis output loses all extracted component data"]
@@ -374,12 +374,13 @@ fn populate_extracted_parts(props: &[CanonicalAbstractProp]) -> Vec<ExtractedPar
 
 fn unify_rust_component(raw: &rust_ast::RawComponentExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
     let props: Vec<CanonicalAbstractProp> = raw.props.iter().map(|rp| {
-        let cam_type = if rp.is_spread_attributes { AbstractPropType::SpreadAttributes } else { map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any) };
+        let (cam_type, concrete_type_opt) = if rp.is_spread_attributes { (AbstractPropType::SpreadAttributes, Some("Attributes".to_string())) } else { map_raw_type_with_concrete(&rp.raw_type).unwrap_or((AbstractPropType::Any, None)) };
         let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
         let reactivity = derive_reactivity(&cam_type, rp.has_default);
         CanonicalAbstractProp {
             canonical_name: rp.name.clone(),
             abstract_type: cam_type,
+            concrete_type: concrete_type_opt,
             reactivity,
             sources: vec![PropSourceMapping { repo_id: file_path.to_string(), original_name: rp.name.clone(), original_type: rp.raw_type.clone() }],
             confidence: 0.0,
@@ -413,12 +414,13 @@ fn unify_tsx_component(raw: &tsx_ast::RawTsxExtraction, file_path: &str) -> Resu
         let cam_type = if rp.raw_type.contains("=>") || rp.raw_type.contains("void") {
             AbstractPropType::AsyncEventHandler(vec![])
         } else {
-            map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any)
+            map_raw_type_with_concrete(&rp.raw_type).unwrap_or((AbstractPropType::Any, None)).0
         };
         let reactivity = derive_reactivity(&cam_type, false);
         CanonicalAbstractProp {
             canonical_name: rp.name.clone(),
             abstract_type: cam_type,
+            concrete_type: concrete_type_opt,
             reactivity,
             sources: vec![PropSourceMapping { repo_id: file_path.to_string(), original_name: rp.name.clone(), original_type: rp.raw_type.clone() }],
             confidence: 0.0,
@@ -449,12 +451,13 @@ fn unify_tsx_component(raw: &tsx_ast::RawTsxExtraction, file_path: &str) -> Resu
 
 fn unify_rust_component_struct(raw: &rust_ast::RawComponentExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
     let props: Vec<CanonicalAbstractProp> = raw.props.iter().map(|rp| {
-        let cam_type = if rp.is_spread_attributes { AbstractPropType::SpreadAttributes } else { map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any) };
+        let (cam_type, concrete_type_opt) = if rp.is_spread_attributes { (AbstractPropType::SpreadAttributes, Some("Attributes".to_string())) } else { map_raw_type_with_concrete(&rp.raw_type).unwrap_or((AbstractPropType::Any, None)) };
         let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
         let reactivity = derive_reactivity(&cam_type, rp.has_default);
         CanonicalAbstractProp {
             canonical_name: rp.name.clone(),
             abstract_type: cam_type,
+            concrete_type: concrete_type_opt,
             reactivity,
             sources: vec![PropSourceMapping { repo_id: file_path.to_string(), original_name: rp.name.clone(), original_type: rp.raw_type.clone() }],
             confidence: 0.0,
