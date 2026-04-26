@@ -7,7 +7,6 @@ pub struct RawComponentExtraction {
     pub name: String,
     pub line_start: usize,
     pub props: Vec<RawPropExtraction>,
-    /// True if this extraction came from the struct-props visitor.
     pub is_struct_pattern: bool,
 }
 

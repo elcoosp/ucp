@@ -225,8 +225,9 @@ async fn pipeline_extracts_struct_props_components() {
         let entry = entry.unwrap();
         fs::copy(entry.path(), src_dir.join(entry.file_name())).unwrap();
     }
+    let src = tmp.path().to_string_lossy().to_string();
     let output = pipeline::run_pipeline_with_options(
-        &tmp.path().to_string_lossy().to_string(),
+        &src,
         &PipelineOptions::default(),
     )
     .await
