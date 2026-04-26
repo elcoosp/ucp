@@ -102,6 +102,11 @@ fn cmd_export(spec: &Path, target: &str, output: &Path, library: &str, version: 
                 .context("Failed to export A2UI catalog")?;
             println!("A2UI catalog written to {}", output.display());
         }
+        "ag-ui" => {
+            ucp_synthesizer::export::ag_ui::export_ag_ui(&synth, &output.to_string_lossy())
+                .context("Failed to export AG-UI event schema")?;
+            println!("AG-UI event schema written to {}", output.display());
+        }
         _ => anyhow::bail!("Unsupported export target: {}. Supported: a2ui", target),
     }
     Ok(())
