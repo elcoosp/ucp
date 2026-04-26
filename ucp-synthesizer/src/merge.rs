@@ -364,7 +364,9 @@ mod tests {
                 sources: vec![],
                 confidence: 0.9,
                 conflicts: vec![],
-            }],
+            
+        concrete_type: None,
+    }],
             events: vec![],
             extracted_state_machine: None,
             extracted_parts: vec![],

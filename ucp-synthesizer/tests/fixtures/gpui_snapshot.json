@@ -27,7 +27,8 @@
             }
           ],
           "confidence": 0.95,
-          "conflicts": []
+          "conflicts": [],
+          "concrete_type": null
         },
         {
           "canonical_name": "disabled",
@@ -41,7 +42,8 @@
             }
           ],
           "confidence": 0.95,
-          "conflicts": []
+          "conflicts": [],
+          "concrete_type": null
         },
         {
           "canonical_name": "variant",
@@ -57,7 +59,8 @@
             }
           ],
           "confidence": 0.95,
-          "conflicts": []
+          "conflicts": [],
+          "concrete_type": null
         },
         {
           "canonical_name": "on_click",
@@ -73,7 +76,8 @@
             }
           ],
           "confidence": 0.95,
-          "conflicts": []
+          "conflicts": [],
+          "concrete_type": null
         }
       ],
       "events": [
