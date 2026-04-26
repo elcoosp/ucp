@@ -41,6 +41,11 @@ enum Commands {
         #[arg(long, short = 'o', default_value = "./dashboard")]
         output: PathBuf,
     },
+    Mcp {
+        #[arg(long)]
+        spec: PathBuf,
+    },
+
     Contract {
         #[arg(long)]
         spec: PathBuf,
@@ -121,6 +126,7 @@ async fn main() -> anyhow::Result<()> {
             output,
         } => cmd_generate(&spec, &target, &output),
         Commands::Dashboard { spec, output } => cmd_dashboard(&spec, &output),
+        Commands::Mcp { spec } => cmd_mcp(&spec).await,
         Commands::Contract { spec, output } => cmd_contract(&spec, &output),
         Commands::Export {
             target,
@@ -253,6 +259,16 @@ fn cmd_dashboard(spec: &Path, output: &Path) -> anyhow::Result<()> {
         serde_json::from_str(&content).context("Invalid spec format")?;
     ucp_synthesizer::dashboard::generator::generate_dashboard(&synth, &output.to_string_lossy())?;
     println!("Dashboard written to {}", output.display());
+    Ok(())
+}
+
+async fn cmd_mcp(spec: &Path) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
+    let synth: ucp_synthesizer::pipeline::SynthesisOutput = serde_json::from_str(&content)
+        .context("Invalid spec format")?;
+    println!("MCP server started. Waiting for requests on stdin...");
+    ucp_synthesizer::contract::mcp_server::run_mcp_server(&synth).await
+        .context("MCP server error")?;
     Ok(())
 }
 
