@@ -195,6 +195,13 @@ fn cmd_export(
                 .context("Failed to export DTCG tokens")?;
             println!("DTCG tokens written to {}", output.display());
         }
+        "design-md" => {
+            use ucp_synthesizer::export::design_md;
+            design_md::export_design_md(&synth, None, library, version, &output.to_string_lossy())
+                .context("Failed to export DESIGN.md")?;
+            println!("DESIGN.md written to {}", output.display());
+        }
+
         _ => anyhow::bail!("Unsupported export target: {}. Supported: a2ui", target),
     }
     Ok(())
