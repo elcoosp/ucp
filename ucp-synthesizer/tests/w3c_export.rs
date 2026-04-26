@@ -2,7 +2,7 @@ use std::fs;
 use tempfile::TempDir;
 use ucp_core::cam::*;
 use ucp_synthesizer::export::w3c::export_w3c;
-use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
+use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
 #[test]
 fn export_full_w3c_with_anatomy_states_variants() {
@@ -34,27 +34,56 @@ fn export_full_w3c_with_anatomy_states_variants() {
                 conflicts: vec![],
             },
         ],
-        events: vec![
-            CanonicalAbstractEvent {
-                canonical_name: "toggle".to_string(),
-                abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),
-            },
-        ],
+        events: vec![CanonicalAbstractEvent {
+            canonical_name: "toggle".to_string(),
+            abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),
+        }],
         extracted_state_machine: Some(StateMachine {
             id: "sm1".into(),
             initial: "Closed".into(),
             states: [
-                ("Closed".into(), StateNode {
-                    on: Some([("OPEN".into(), Transition { target: "Open".into(), side_effects: vec![] })].into()),
-                }),
-                ("Open".into(), StateNode {
-                    on: Some([("CLOSE".into(), Transition { target: "Closed".into(), side_effects: vec!["focus: move_to".into()] })].into()),
-                }),
-            ].into(),
+                (
+                    "Closed".into(),
+                    StateNode {
+                        on: Some(
+                            [(
+                                "OPEN".into(),
+                                Transition {
+                                    target: "Open".into(),
+                                    side_effects: vec![],
+                                },
+                            )]
+                            .into(),
+                        ),
+                    },
+                ),
+                (
+                    "Open".into(),
+                    StateNode {
+                        on: Some(
+                            [(
+                                "CLOSE".into(),
+                                Transition {
+                                    target: "Closed".into(),
+                                    side_effects: vec!["focus: move_to".into()],
+                                },
+                            )]
+                            .into(),
+                        ),
+                    },
+                ),
+            ]
+            .into(),
         }),
         extracted_parts: vec![
-            ExtractedPart { name: "trigger".into(), selectable: true },
-            ExtractedPart { name: "content".into(), selectable: false },
+            ExtractedPart {
+                name: "trigger".into(),
+                selectable: true,
+            },
+            ExtractedPart {
+                name: "content".into(),
+                selectable: false,
+            },
         ],
         source_repos: vec![],
         provided_context: None,

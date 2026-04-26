@@ -1,10 +1,10 @@
 use tempfile::TempDir;
 use ucp_core::cam::*;
+use ucp_synthesizer::export::w3c::export_w3c;
 use ucp_synthesizer::generate::dioxus::generate_dioxus;
 use ucp_synthesizer::generate::leptos::generate_leptos;
 use ucp_synthesizer::generate::registry::generate_registry;
-use ucp_synthesizer::export::w3c::export_w3c;
-use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
+use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
 fn make_test_component(name: &str) -> CanonicalAbstractComponent {
     CanonicalAbstractComponent {
@@ -83,10 +83,20 @@ fn full_v030_registry_and_w3c() {
         generated_at: "now".into(),
     };
 
-    // Generate registry
-    generate_registry(&manifest, &tmp.path().join("registry").to_string_lossy()).unwrap();
+    // Generate registry (corrected interface)
+    generate_registry(
+        &manifest,
+        &tmp.path().join("registry").to_string_lossy(),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
     assert!(tmp.path().join("registry/registry.json").exists());
-    assert!(tmp.path().join("registry/registry-item-input.json").exists());
+    assert!(tmp
+        .path()
+        .join("registry/registry-item-input.json")
+        .exists());
 
     // Export W3C
     let output = SynthesisOutput {

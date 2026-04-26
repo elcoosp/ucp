@@ -1,11 +1,10 @@
 use ucp_core::cam::*;
 use ucp_synthesizer::merge::merge_specs;
-use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
+use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
 #[test]
-
 #[ignore]
-    fn dioxus_context_survives_merge_direct() {
+fn dioxus_context_survives_merge_direct() {
     // Build two components manually: one provider, one consumer.
     let provider = CanonicalAbstractComponent {
         id: "rust:dialog.rs:Dialog".to_string(),
@@ -79,11 +78,19 @@ use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
     let merged = merge_specs(&[spec_a, spec_b]).unwrap();
     assert_eq!(merged.components.len(), 2, "Should keep both components");
 
-    let prov = merged.components.iter().find(|c| c.id.contains("Dialog")).expect("Dialog component should exist");
+    let prov = merged
+        .components
+        .iter()
+        .find(|c| c.id.contains("Dialog"))
+        .expect("Dialog component should exist");
     assert_eq!(prov.provided_context.as_deref(), Some("DialogContext"));
     assert!(prov.consumed_contexts.is_empty());
 
-    let cons = merged.components.iter().find(|c| c.id.contains("Actions")).expect("DialogActions component should exist");
+    let cons = merged
+        .components
+        .iter()
+        .find(|c| c.id.contains("Actions"))
+        .expect("DialogActions component should exist");
     assert_eq!(cons.consumed_contexts, vec!["DialogContext"]);
     assert!(cons.provided_context.is_none());
 }

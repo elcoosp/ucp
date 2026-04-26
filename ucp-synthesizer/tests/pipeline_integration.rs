@@ -226,12 +226,9 @@ async fn pipeline_extracts_struct_props_components() {
         fs::copy(entry.path(), src_dir.join(entry.file_name())).unwrap();
     }
     let src = tmp.path().to_string_lossy().to_string();
-    let output = pipeline::run_pipeline_with_options(
-        &src,
-        &PipelineOptions::default(),
-    )
-    .await
-    .unwrap();
+    let output = pipeline::run_pipeline_with_options(&src, &PipelineOptions::default())
+        .await
+        .unwrap();
     assert_eq!(output.stats.components_found, 2);
     for comp in &output.components {
         assert!(comp.id.contains("StandardizedButton") || comp.id.contains("Badge"));

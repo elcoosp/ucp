@@ -6,10 +6,7 @@
 /// between words (e.g. `impl Into < SharedString >` → `impl Into<SharedString>`).
 pub(crate) fn normalize_type_string(input: &str) -> String {
     // 1. Collapse all whitespace to single spaces
-    let collapsed: String = input
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let collapsed: String = input.split_whitespace().collect::<Vec<_>>().join(" ");
 
     // 2. Remove spaces around `<>`, `()`, `,`, `&`, `+`
     let mut out = String::with_capacity(collapsed.len());

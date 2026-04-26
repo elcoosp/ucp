@@ -31,8 +31,12 @@ pub fn abstract_to_rust_type(ty: &AbstractPropType) -> String {
         AbstractPropType::StaticValue(_) | AbstractPropType::Any => "String".to_string(),
         AbstractPropType::AsyncEventHandler(_) => "EventHandler<MouseEvent>".to_string(),
         AbstractPropType::Renderable => "Element".to_string(),
-        AbstractPropType::ControlledValue(inner) => format!("Signal<{}>", abstract_to_rust_type(inner)),
-        AbstractPropType::UncontrolledValue(inner) => format!("MaybeSignal<{}>", abstract_to_rust_type(inner)),
+        AbstractPropType::ControlledValue(inner) => {
+            format!("Signal<{}>", abstract_to_rust_type(inner))
+        }
+        AbstractPropType::UncontrolledValue(inner) => {
+            format!("MaybeSignal<{}>", abstract_to_rust_type(inner))
+        }
         AbstractPropType::SpreadAttributes => "Vec<Attribute>".to_string(),
     }
 }

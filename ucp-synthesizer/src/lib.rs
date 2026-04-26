@@ -1,11 +1,13 @@
+pub mod contract;
 pub mod curation;
+pub mod dashboard;
 pub mod discovery;
+pub mod export;
 pub mod extract;
+pub mod generate;
 pub mod llm;
 pub mod merge;
 pub mod pipeline;
 pub mod security;
 pub mod unify;
-pub mod generate;
-pub mod export;
 pub mod utils;

@@ -1,9 +1,9 @@
+use crate::pipeline::SynthesisOutput;
+use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use serde::Serialize;
 use ucp_core::cam::*;
 use ucp_core::Result;
-use crate::pipeline::SynthesisOutput;
 
 // ── Full W3C UI Specification Schema types ───────────────────────────────
 
@@ -161,13 +161,17 @@ fn cam_to_w3c(comp: &CanonicalAbstractComponent) -> W3cComponent {
     W3cComponent {
         id: comp.id.clone(),
         name: name.clone(),
-        category: None, // future: infer from prop patterns
+        category: None,    // future: infer from prop patterns
         description: None, // populated by LLM enrichment
-        anatomy: comp.extracted_parts.iter().map(|p| W3cPart {
-            name: p.name.clone(),
-            description: None,
-            selectable: p.selectable,
-        }).collect(),
+        anatomy: comp
+            .extracted_parts
+            .iter()
+            .map(|p| W3cPart {
+                name: p.name.clone(),
+                description: None,
+                selectable: p.selectable,
+            })
+            .collect(),
         states: comp.extracted_state_machine.as_ref().map(cam_states_to_w3c),
         variants: extract_variants(comp),
         properties: comp.props.iter().map(cam_prop_to_w3c).collect(),
@@ -181,16 +185,27 @@ fn cam_to_w3c(comp: &CanonicalAbstractComponent) -> W3cComponent {
 fn cam_states_to_w3c(sm: &StateMachine) -> W3cStateMachine {
     W3cStateMachine {
         initial: sm.initial.clone(),
-        states: sm.states.iter().map(|(name, node)| W3cState {
-            name: name.clone(),
-            on: node.on.as_ref().map(|trans| {
-                trans.iter().map(|(event, t)| W3cTransition {
-                    event: event.clone(),
-                    target: t.target.clone(),
-                    side_effects: t.side_effects.clone(),
-                }).collect()
-            }).unwrap_or_default(),
-        }).collect(),
+        states: sm
+            .states
+            .iter()
+            .map(|(name, node)| W3cState {
+                name: name.clone(),
+                on: node
+                    .on
+                    .as_ref()
+                    .map(|trans| {
+                        trans
+                            .iter()
+                            .map(|(event, t)| W3cTransition {
+                                event: event.clone(),
+                                target: t.target.clone(),
+                                side_effects: t.side_effects.clone(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect(),
     }
 }
 
@@ -199,7 +214,11 @@ fn cam_prop_to_w3c(p: &CanonicalAbstractProp) -> W3cProp {
         name: p.canonical_name.clone(),
         prop_type: format!("{:?}", p.abstract_type).to_lowercase(),
         required: p.reactivity != AbstractReactivity::Static,
-        default: if p.reactivity == AbstractReactivity::Static { Some("default".to_string()) } else { None },
+        default: if p.reactivity == AbstractReactivity::Static {
+            Some("default".to_string())
+        } else {
+            None
+        },
         description: p.concrete_type.clone(),
         constraints: None,
     }
@@ -218,7 +237,8 @@ fn extract_variants(comp: &CanonicalAbstractComponent) -> Vec<W3cVariant> {
     for p in &comp.props {
         if let Some(conc) = &p.concrete_type {
             if conc.starts_with("enum: ") {
-                let values: Vec<String> = conc[6..].split(',').map(|s| s.trim().to_string()).collect();
+                let values: Vec<String> =
+                    conc[6..].split(',').map(|s| s.trim().to_string()).collect();
                 variants.push(W3cVariant {
                     name: p.canonical_name.clone(),
                     variant_type: "enum".to_string(),

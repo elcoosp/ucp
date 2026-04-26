@@ -52,7 +52,10 @@ fn generate_leptos_button_stub() {
     let file = tmp.path().join("src").join("button.rs");
     assert!(file.exists(), "Expected generated file to exist");
     let content = fs::read_to_string(&file).unwrap();
-    assert!(content.contains("pub fn Button"), "Should contain component function");
+    assert!(
+        content.contains("pub fn Button"),
+        "Should contain component function"
+    );
     assert!(content.contains("view! {"), "Should contain view! macro");
     assert!(content.contains("disabled"), "Should contain disabled prop");
     assert!(content.contains("label"), "Should contain label prop");
@@ -106,6 +109,12 @@ fn generate_leptos_with_spread_attributes() {
     generate_leptos(&manifest, &tmp.path().to_string_lossy()).unwrap();
     let file = tmp.path().join("src").join("card.rs");
     let content = fs::read_to_string(&file).unwrap();
-    assert!(content.contains("#[prop(attrs)]"), "Should have attrs on spread");
-    assert!(content.contains("Children"), "Should use Children for renderable");
+    assert!(
+        content.contains("#[prop(attrs)]"),
+        "Should have attrs on spread"
+    );
+    assert!(
+        content.contains("Children"),
+        "Should use Children for renderable"
+    );
 }

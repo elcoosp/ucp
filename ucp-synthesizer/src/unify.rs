@@ -69,7 +69,10 @@ pub fn map_raw_type_with_concrete(raw_type: &str) -> Result<(AbstractPropType, O
         || clean.starts_with("fn(")
         || clean.contains("=>")
     {
-        return Ok((AbstractPropType::AsyncEventHandler(vec![]), Some(clean.to_string())));
+        return Ok((
+            AbstractPropType::AsyncEventHandler(vec![]),
+            Some(clean.to_string()),
+        ));
     }
 
     // Renderable children / slots → Renderable
@@ -104,17 +107,23 @@ pub fn map_raw_type_with_concrete(raw_type: &str) -> Result<(AbstractPropType, O
             Some(clean.to_string()),
         )),
         // impl Fn(...) → AsyncEventHandler
-        clean if clean.starts_with("implFn(") || clean.starts_with("implfor<") || clean.starts_with("fn(") => Ok((
-            AbstractPropType::AsyncEventHandler(vec![]),
-            Some(clean.to_string()),
-        )),
+        clean
+            if clean.starts_with("implFn(")
+                || clean.starts_with("implfor<")
+                || clean.starts_with("fn(") =>
+        {
+            Ok((
+                AbstractPropType::AsyncEventHandler(vec![]),
+                Some(clean.to_string()),
+            ))
+        }
         // Box<dyn Fn...> → AsyncEventHandler
         clean if clean.starts_with("Box<dynFn(") || clean.starts_with("Box<dynfor<") => Ok((
             AbstractPropType::AsyncEventHandler(vec![]),
             Some(clean.to_string()),
         )),
         // unknown type starting with uppercase → StaticValue(Any) with concrete
-        clean if clean.chars().next().map_or(false, |c| c.is_uppercase()) => Ok((
+        clean if clean.chars().next().is_some_and(|c| c.is_uppercase()) => Ok((
             AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
             Some(clean.to_string()),
         )),
@@ -213,7 +222,10 @@ mod tests {
     #[test]
     fn unknown_type_to_any() {
         let cam = map_raw_type_to_cam("CustomWidget").unwrap();
-        assert_eq!(cam, AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)));
+        assert_eq!(
+            cam,
+            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any))
+        );
     }
 
     #[test]

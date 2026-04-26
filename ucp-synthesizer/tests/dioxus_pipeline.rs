@@ -27,11 +27,7 @@ async fn dioxus_spread_attributes_appears_in_cam_output() {
     let src_dir = tmp.path().join("src");
     fs::create_dir_all(&src_dir).unwrap();
 
-    fs::write(
-        src_dir.join("button.rs"),
-        DIOXUS_BUTTON_CODE,
-    )
-    .unwrap();
+    fs::write(src_dir.join("button.rs"), DIOXUS_BUTTON_CODE).unwrap();
 
     let output = pipeline::run_pipeline_with_options(
         &tmp.path().to_string_lossy(),
@@ -50,6 +46,10 @@ async fn dioxus_spread_attributes_appears_in_cam_output() {
         .iter()
         .find(|p| p.canonical_name == "attributes")
         .expect("Should have an 'attributes' prop");
-    assert_eq!(attr_prop.abstract_type, AbstractPropType::SpreadAttributes,
-        "Expected SpreadAttributes, got {:?}", attr_prop.abstract_type);
+    assert_eq!(
+        attr_prop.abstract_type,
+        AbstractPropType::SpreadAttributes,
+        "Expected SpreadAttributes, got {:?}",
+        attr_prop.abstract_type
+    );
 }

@@ -24,11 +24,28 @@ pub fn extract_tokens_from_source(source: &str) -> Result<DesignTokens> {
             if let Some((key, value)) = rest.split_once(':') {
                 let key = key.trim().to_string();
                 let value = value.trim().trim_end_matches(';').trim().to_string();
-                if key.starts_with("color") || key.starts_with("primary") || key.starts_with("secondary") || key.starts_with("accent") || key.starts_with("destructive") || key.starts_with("muted") || key.starts_with("border") || key.starts_with("input") || key.starts_with("ring") || key.starts_with("background") || key.starts_with("foreground") || key.starts_with("chart") || key.starts_with("sidebar") {
+                if key.starts_with("color")
+                    || key.starts_with("primary")
+                    || key.starts_with("secondary")
+                    || key.starts_with("accent")
+                    || key.starts_with("destructive")
+                    || key.starts_with("muted")
+                    || key.starts_with("border")
+                    || key.starts_with("input")
+                    || key.starts_with("ring")
+                    || key.starts_with("background")
+                    || key.starts_with("foreground")
+                    || key.starts_with("chart")
+                    || key.starts_with("sidebar")
+                {
                     tokens.colors.insert(format!("--{}", key), value);
                 } else if key.starts_with("spacing") || key.starts_with("space") {
                     tokens.spacing.insert(format!("--{}", key), value);
-                } else if key.starts_with("font") || key.starts_with("text") || key.starts_with("leading") || key.starts_with("tracking") {
+                } else if key.starts_with("font")
+                    || key.starts_with("text")
+                    || key.starts_with("leading")
+                    || key.starts_with("tracking")
+                {
                     tokens.typography.insert(format!("--{}", key), value);
                 }
             }

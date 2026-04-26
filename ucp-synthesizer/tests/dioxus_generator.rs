@@ -58,8 +58,20 @@ fn generate_dioxus_from_package_manifest() {
     assert!(generated_file.exists(), "Button source should be generated");
 
     let content = fs::read_to_string(&generated_file).unwrap();
-    assert!(content.contains("pub struct ButtonProps"), "Should define ButtonProps");
-    assert!(content.contains("fn Button("), "Should define Button component");
-    assert!(content.contains("disabled: bool"), "Should include disabled prop");
-    assert!(content.contains("label: String"), "Should include label prop");
+    assert!(
+        content.contains("pub struct ButtonProps"),
+        "Should define ButtonProps"
+    );
+    assert!(
+        content.contains("fn Button("),
+        "Should define Button component"
+    );
+    assert!(
+        content.contains("disabled: bool"),
+        "Should include disabled prop"
+    );
+    assert!(
+        content.contains("label: String"),
+        "Should include label prop"
+    );
 }

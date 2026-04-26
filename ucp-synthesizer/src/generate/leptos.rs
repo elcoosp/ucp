@@ -1,11 +1,11 @@
+use super::common::{
+    abstract_to_rust_type, concrete_to_rust_type, generate_cargo_toml, generate_props_derive,
+    to_snake_case,
+};
 use std::fs;
 use std::path::Path;
 use ucp_core::cam::*;
 use ucp_core::Result;
-use super::common::{
-    to_snake_case, concrete_to_rust_type, abstract_to_rust_type,
-    generate_props_derive, generate_cargo_toml,
-};
 
 /// Generate Leptos component code from a package manifest.
 pub fn generate_leptos(manifest: &PackageManifest, output_dir: &str) -> Result<()> {
@@ -64,10 +64,7 @@ fn generate_component_code(comp: &CanonicalAbstractComponent) -> String {
                 "    pub {}: Option<Callback<MouseEvent>>,",
                 field_name
             ));
-            fn_params.push(format!(
-                "    {}: Option<Callback<MouseEvent>>",
-                field_name
-            ));
+            fn_params.push(format!("    {}: Option<Callback<MouseEvent>>", field_name));
             continue;
         }
 
@@ -95,7 +92,10 @@ fn generate_component_code(comp: &CanonicalAbstractComponent) -> String {
             ""
         };
 
-        props_fields.push(format!("    {}{}: {},", default_attr, field_name, rust_type));
+        props_fields.push(format!(
+            "    {}{}: {},",
+            default_attr, field_name, rust_type
+        ));
         fn_params.push(format!("    {}{}: {}", default_attr, field_name, rust_type));
     }
 

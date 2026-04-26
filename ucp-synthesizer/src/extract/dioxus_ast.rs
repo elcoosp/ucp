@@ -1,5 +1,5 @@
-use syn::{parse_file, visit::Visit, FnArg, ItemFn, ItemStruct, ExprCall, ExprClosure, Stmt};
 use quote::ToTokens;
+use syn::{parse_file, visit::Visit, ExprCall, ExprClosure, FnArg, ItemFn, ItemStruct, Stmt};
 use ucp_core::Result;
 
 use super::rust_ast::{RawComponentExtraction, RawPropExtraction};
@@ -48,7 +48,9 @@ impl<'ast> Visit<'ast> for ContextVisitor {
                 if let syn::Expr::Path(expr_path) = &*call.func {
                     if let Some(seg) = expr_path.path.segments.last() {
                         if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                            if let Some(syn::GenericArgument::Type(syn::Type::Path(tp))) = args.args.first() {
+                            if let Some(syn::GenericArgument::Type(syn::Type::Path(tp))) =
+                                args.args.first()
+                            {
                                 if let Some(ident) = tp.path.get_ident() {
                                     self.consumed.push(ident.to_string());
                                 }
@@ -146,31 +148,51 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
             if let syn::Meta::List(ml) = &attr.meta {
                 if ml.path.is_ident("derive") {
                     ml.tokens.to_string().contains("Props")
-                } else { false }
-            } else { false }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
         });
-        if !has_props_derive { return; }
+        if !has_props_derive {
+            return;
+        }
 
         let struct_name = item.ident.to_string();
         let mut props = Vec::new();
         for field in &item.fields {
-            let field_name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
-            if field_name.is_empty() { continue; }
+            let field_name = field
+                .ident
+                .as_ref()
+                .map(|i| i.to_string())
+                .unwrap_or_default();
+            if field_name.is_empty() {
+                continue;
+            }
             let raw_type = normalize_type_string(&field.ty.to_token_stream().to_string());
             let has_default = field.attrs.iter().any(|a| {
                 if let syn::Meta::List(ml) = &a.meta {
                     if ml.path.is_ident("props") {
                         ml.tokens.to_string().contains("default")
-                    } else { false }
-                } else { false }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
             });
             let is_spread_attributes = field.attrs.iter().any(|a| {
                 if let syn::Meta::List(ml) = &a.meta {
                     if ml.path.is_ident("props") {
                         ml.tokens.to_string().contains("extends")
                             && ml.tokens.to_string().contains("GlobalAttributes")
-                    } else { false }
-                } else { false }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
             });
             props.push(RawPropExtraction {
                 name: field_name,
@@ -180,8 +202,11 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
                 is_spread_attributes,
             });
         }
-        if props.is_empty() { return; }
-        let line_start = self.source
+        if props.is_empty() {
+            return;
+        }
+        let line_start = self
+            .source
             .find(&format!("pub struct {}", struct_name))
             .map(|pos| self.source[..pos].matches('\n').count() + 1)
             .unwrap_or(0);
@@ -189,8 +214,12 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
     }
 
     fn visit_item_fn(&mut self, func: &ItemFn) {
-        if !func.attrs.iter().any(|a| a.path().is_ident("component")) { return; }
-        if func.sig.inputs.len() != 1 { return; }
+        if !func.attrs.iter().any(|a| a.path().is_ident("component")) {
+            return;
+        }
+        if func.sig.inputs.len() != 1 {
+            return;
+        }
         let param = match &func.sig.inputs[0] {
             FnArg::Typed(pat_type) => pat_type,
             _ => return,
@@ -198,7 +227,10 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
         let param_type_name = normalize_type_string(&param.ty.to_token_stream().to_string());
         if let Some((props, line_start)) = self.props_structs.remove(&param_type_name) {
             // AST-based context detection
-            let mut ctx_visitor = ContextVisitor { provided: None, consumed: vec![] };
+            let mut ctx_visitor = ContextVisitor {
+                provided: None,
+                consumed: vec![],
+            };
             ctx_visitor.visit_item_fn(func);
             self.components.push(RawComponentExtraction {
                 name: func.sig.ident.to_string(),

@@ -11,8 +11,8 @@ mod types;
 pub use fingerprint::SemanticFingerprint;
 pub use props::{AbstractPropType, AbstractReactivity, Conflict, ResolutionStrategy};
 pub use state_machine::{StateMachine, StateNode, Transition};
+pub use types::PackageManifest;
 pub use types::{
     CanonicalAbstractComponent, CanonicalAbstractEvent, CanonicalAbstractProp, ExtractedPart,
     PropSourceMapping, SourceAttribution,
 };
-pub use types::PackageManifest;
