@@ -48,7 +48,10 @@ validate *ARGS:
 merge *ARGS:
     cargo run --release -- merge {{ ARGS }}
 
+generate *ARGS:
+    cargo run --release -- generate {{ ARGS }}
 components *ARGS:
     cargo run --release -- components {{ ARGS }}
+
 wr:
     watchexec -w ./wr.sh --clear -r "sh ./wr.sh"

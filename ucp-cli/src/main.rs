@@ -83,8 +83,19 @@ async fn main() -> anyhow::Result<()> {
 
 fn cmd_generate(spec: &Path, target: &str, output: &Path) -> anyhow::Result<()> {
     use ucp_core::cam::PackageManifest;
+    use ucp_synthesizer::pipeline::SynthesisOutput;
+
     let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
-    let manifest: PackageManifest = serde_json::from_str(&content).context("Invalid spec format")?;
+
+    // Try PackageManifest first, then SynthesisOutput
+    let manifest: PackageManifest = if let Ok(m) = serde_json::from_str(&content) {
+        m
+    } else if let Ok(syn) = serde_json::from_str::<SynthesisOutput>(&content) {
+        syn.to_package_manifest("ucp-extracted", "0.1.0", vec!["dioxus".to_string()])
+    } else {
+        anyhow::bail!("Invalid spec format: expected PackageManifest or SynthesisOutput");
+    };
+
     match target {
         "dioxus" => {
             ucp_synthesizer::generate::dioxus::generate_dioxus(&manifest, &output.to_string_lossy())
@@ -95,7 +106,6 @@ fn cmd_generate(spec: &Path, target: &str, output: &Path) -> anyhow::Result<()> 
     }
     Ok(())
 }
-
 async fn cmd_bootstrap(
     source_dir: &str, output_dir: &str, ollama_url: Option<String>, llm_model: &str, watch: bool,
 ) -> anyhow::Result<()> {

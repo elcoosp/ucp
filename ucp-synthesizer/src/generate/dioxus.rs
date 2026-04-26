@@ -9,8 +9,9 @@ pub fn generate_dioxus(manifest: &PackageManifest, output_dir: &str) -> Result<(
     fs::create_dir_all(dir.join("src")).map_err(ucp_core::UcpError::Io)?;
 
     for comp in &manifest.components {
-        let file_name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
-        let file_path = dir.join("src").join(format!("{}.rs", file_name.to_lowercase()));
+        let raw_name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
+        let file_name = to_snake_case(raw_name);
+        let file_path = dir.join("src").join(format!("{}.rs", file_name));
         let code = generate_component_code(comp);
         fs::write(&file_path, code).map_err(ucp_core::UcpError::Io)?;
     }
@@ -29,6 +30,28 @@ dioxus = "0.7"
     fs::write(dir.join("Cargo.toml"), cargo_toml).map_err(ucp_core::UcpError::Io)?;
 
     Ok(())
+}
+
+/// Simple PascalCase/kebab-case to snake_case conversion
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut prev_lower = false;
+    for c in s.chars() {
+        if c == '-' || c == ' ' {
+            result.push('_');
+            prev_lower = false;
+        } else if c.is_uppercase() {
+            if prev_lower {
+                result.push('_');
+            }
+            result.push(c.to_lowercase().next().unwrap());
+            prev_lower = false;
+        } else {
+            result.push(c);
+            prev_lower = true;
+        }
+    }
+    result.trim_matches('_').to_string()
 }
 
 /// Generate the Rust source for a single canonical component.
