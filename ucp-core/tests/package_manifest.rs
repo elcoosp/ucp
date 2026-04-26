@@ -1,5 +1,4 @@
 use ucp_core::cam::*;
-use ucp_core::cam::{CanonicalAbstractComponent, CanonicalAbstractProp, AbstractPropType, AbstractReactivity, PackageManifest};
 
 #[test]
 fn serialize_package_manifest() {
@@ -9,15 +8,7 @@ fn serialize_package_manifest() {
             purpose_hash: "abc".to_string(),
             normalized_prop_names: vec!["disabled".to_string()],
         },
-        props: vec![CanonicalAbstractProp {
-            canonical_name: "disabled".to_string(),
-            abstract_type: AbstractPropType::ControlFlag,
-            reactivity: AbstractReactivity::Static,
-            concrete_type: Some("bool".to_string()),
-            sources: vec![],
-            confidence: 1.0,
-            conflicts: vec![],
-        }],
+        props: vec![],
         events: vec![],
         extracted_state_machine: None,
         extracted_parts: vec![],

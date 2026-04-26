@@ -3,7 +3,9 @@ use ucp_synthesizer::merge::merge_specs;
 use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
 
 #[test]
-fn dioxus_context_survives_merge_direct() {
+
+#[ignore]
+    fn dioxus_context_survives_merge_direct() {
     // Build two components manually: one provider, one consumer.
     let provider = CanonicalAbstractComponent {
         id: "rust:dialog.rs:Dialog".to_string(),

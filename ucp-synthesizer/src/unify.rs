@@ -1,14 +1,15 @@
 use ucp_core::{cam::AbstractPropType, Result};
 
-/// Map a raw type string to CAM abstract type, and also produce a normalised concrete type.
+/// Map a raw type string to CAM abstract type (convenience wrapper).
 pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
     let (abstract_type, _) = map_raw_type_with_concrete(raw_type)?;
     Ok(abstract_type)
 }
 
-/// Same as map_raw_type_to_cam, but also returns an optional concrete type string.
+/// Map a raw type string to CAM abstract type and an optional concrete type string.
 pub fn map_raw_type_with_concrete(raw_type: &str) -> Result<(AbstractPropType, Option<String>)> {
     let clean = raw_type.replace(' ', "");
+    let concrete = Some(clean.clone()); // default: cleaned type
 
     // Reactive signal wrappers → ControlledValue(inner)
     if clean.starts_with("RwSignal<") || clean.starts_with("Signal<") {
@@ -244,7 +245,7 @@ mod tests {
         }
     }
 
-    // New tests for concrete type return
+    // New tests for concrete type output
     #[test]
     fn concrete_type_for_bool() {
         let (abs, conc) = map_raw_type_with_concrete("bool").unwrap();

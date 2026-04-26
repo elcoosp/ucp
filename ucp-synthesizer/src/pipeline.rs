@@ -749,10 +749,10 @@ impl SynthesisOutput {
 // Tests
 // ---------------------------------------------------------------------------
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ucp_core::cam::*;
 
     #[test]
     fn smdl_to_state_machine_converts_correctly() {
