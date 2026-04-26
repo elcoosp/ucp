@@ -89,6 +89,14 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
         | "f64" => Ok(AbstractPropType::StaticValue(Box::new(
             AbstractPropType::Any,
         ))),
+        // impl Into<T> → StaticValue(Any) (converts to owned type)
+        clean if clean.starts_with("implInto<") => Ok(AbstractPropType::StaticValue(Box::new(AbstractPropType::Any))),
+        // impl Fn(...) or fn(...) patterns → AsyncEventHandler
+        clean if clean.starts_with("implFn(") || clean.starts_with("implfor<") || clean.starts_with("fn(") => Ok(AbstractPropType::AsyncEventHandler(vec![])),
+        // Box<dyn Fn...> → AsyncEventHandler
+        clean if clean.starts_with("Box<dynFn(") || clean.starts_with("Box<dynfor<") => Ok(AbstractPropType::AsyncEventHandler(vec![])),
+        // unknown type starting with uppercase → StaticValue(Any) (likely an enum or struct)
+        clean if clean.chars().next().map_or(false, |c| c.is_uppercase()) => Ok(AbstractPropType::StaticValue(Box::new(AbstractPropType::Any))),
         _ => Ok(AbstractPropType::Any),
     }
 }
@@ -184,7 +192,7 @@ mod tests {
     #[test]
     fn unknown_type_to_any() {
         let cam = map_raw_type_to_cam("CustomWidget").unwrap();
-        assert_eq!(cam, AbstractPropType::Any);
+        assert_eq!(cam, AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)));
     }
 
     #[test]

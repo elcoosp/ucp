@@ -167,7 +167,7 @@ impl Visit<'_> for StructComponentVisitor {
             if field_name.is_empty() {
                 continue;
             }
-            let raw_type = field.ty.to_token_stream().to_string().replace(" ", "");
+                let raw_type = crate::utils::normalize_type_string(&field.ty.to_token_stream().to_string());
             let has_default = raw_type.trim().starts_with("Option");
             props.push(RawPropExtraction {
                 name: field_name,
@@ -287,7 +287,7 @@ impl GpuiComponentVisitor {
             for field in &item_struct.fields {
                 let field_name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
                 if field_name.is_empty() { continue; }
-                let raw_type = field.ty.to_token_stream().to_string();
+                let raw_type = crate::utils::normalize_type_string(&field.ty.to_token_stream().to_string());
                 let has_default = raw_type.trim().starts_with("Option");
                 props.push(RawPropExtraction {
                     name: field_name.clone(),
@@ -311,7 +311,7 @@ impl GpuiComponentVisitor {
                             syn::FnArg::Typed(pt) => pt,
                             _ => continue,
                         };
-                        let arg_type = param.ty.to_token_stream().to_string(); // external type
+                        let arg_type = crate::utils::normalize_type_string(&param.ty.to_token_stream().to_string()); // external type, normalized
 
                         // check for event‑like patterns
                         let is_event = arg_type.contains("Fn") || arg_type.contains("Callback") ||
@@ -392,6 +392,41 @@ impl GpuiComponentVisitor {
             });
         }
 
+        for comp in &mut components { Self::group_variant_props(&mut comp.props); }
         Ok(components)
+    }
+
+    /// Group multiple methods that set the same struct field into a single
+    /// "variant" prop with the method names as enum values.
+    fn group_variant_props(props: &mut Vec<RawPropExtraction>) {
+        use std::collections::HashMap;
+        let mut field_setters: HashMap<String, Vec<String>> = HashMap::new();
+        // collect all method names that target the same field
+        for p in props.iter() {
+            let parts: Vec<&str> = p.name.splitn(2, '_').collect();
+            if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+                field_setters.entry(parts[0].to_string()).or_default().push(parts[1].to_string());
+            }
+        }
+        // for each field that has multiple setters, replace them with a single variant prop
+        let mut to_remove = Vec::new();
+        for (field, variants) in field_setters.iter() {
+            if variants.len() > 1 {
+                // create the variant prop
+                let enum_values = variants.join(" | ");
+                let default = props.iter()
+                    .find(|p| p.name == format!("{}_default", field) || p.name == *field)
+                    .map(|p| if p.has_default { Some(p.name.clone()) } else { None })
+                    .flatten();
+                to_remove.extend(props.iter().enumerate().filter(|(_, p)| p.name.starts_with(field)).map(|(i, _)| i));
+                props.retain(|p| !p.name.starts_with(field));
+                props.push(RawPropExtraction {
+                    name: field.clone(),
+                    raw_type: format!("enum {{ {} }}", enum_values),
+                    has_default: default.is_some(),
+                    is_event: false,
+                });
+            }
+        }
     }
 }

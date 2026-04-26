@@ -398,12 +398,24 @@ fn extract_events_from_props(props: &[CanonicalAbstractProp]) -> Vec<CanonicalAb
         .iter()
         .filter_map(|p| {
             if let AbstractPropType::AsyncEventHandler(payload_types) = &p.abstract_type {
+                // Remove the leading "on_" and lowercase the first letter
                 let event_name = p
                     .canonical_name
-                    .strip_prefix("on")
-                    .unwrap_or(&p.canonical_name);
+                    .strip_prefix("on_")
+                    .or_else(|| p.canonical_name.strip_prefix("on"))
+                    .unwrap_or(&p.canonical_name)
+                    .to_string();
+                let event_name = if event_name.is_empty() {
+                    p.canonical_name.clone()
+                } else {
+                    let mut chars = event_name.chars();
+                    match chars.next() {
+                        Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
+                        None => String::new(),
+                    }
+                };
                 Some(CanonicalAbstractEvent {
-                    canonical_name: event_name.to_string(),
+                    canonical_name: event_name,
                     abstract_payload: AbstractPropType::AsyncEventHandler(payload_types.clone()),
                 })
             } else {
@@ -433,6 +445,7 @@ fn unify_rust_component(
         .iter()
         .map(|rp| {
             let cam_type = map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any);
+                    let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
             let reactivity = derive_reactivity(&cam_type, rp.has_default);
             CanonicalAbstractProp {
                 canonical_name: rp.name.clone(),
@@ -626,6 +639,7 @@ impl SynthesisOutput {
 fn unify_rust_component_struct(raw: &rust_ast::RawComponentExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
     let props: Vec<CanonicalAbstractProp> = raw.props.iter().map(|rp| {
         let cam_type = map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any);
+                    let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
         let reactivity = derive_reactivity(&cam_type, rp.has_default);
         CanonicalAbstractProp {
             canonical_name: rp.name.clone(),
@@ -819,7 +833,7 @@ mod tests {
         ];
         let events = extract_events_from_props(&props);
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].canonical_name, "Click");
+        assert_eq!(events[0].canonical_name, "click");
     }
 
     #[test]
