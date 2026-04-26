@@ -102,6 +102,12 @@ fn cmd_generate(spec: &Path, target: &str, output: &Path) -> anyhow::Result<()> 
                 .context("Failed to generate Dioxus code")?;
             println!("Generated Dioxus code in {}", output.display());
         }
+        "leptos" => {
+            ucp_synthesizer::generate::leptos::generate_leptos(&manifest, &output.to_string_lossy())
+                .context("Failed to generate Leptos code")?;
+            println!("Generated Leptos code in {}", output.display());
+        }
+
         _ => anyhow::bail!("Unsupported target: {}. Supported: dioxus", target),
     }
     Ok(())
