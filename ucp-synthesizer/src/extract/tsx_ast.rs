@@ -5,6 +5,8 @@ pub struct RawTsxExtraction {
     pub name: String,
     pub line_start: usize,
     pub props: Vec<RawTsxPropExtraction>,
+    pub provided_context: Option<String>,
+    pub consumed_contexts: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -12,6 +14,7 @@ pub struct RawTsxPropExtraction {
     pub name: String,
     pub raw_type: String,
     pub is_optional: bool,
+    pub is_spread_attributes: bool,
 }
 
 /// Extract components from TSX/TS source code.
@@ -74,6 +77,8 @@ pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
                         name: name.to_string(),
                         line_start: current_line + 1,
                         props: current_props.clone(),
+                        provided_context: None,
+                        consumed_contexts: vec![],
                     });
                     current_props.clear();
                 }
@@ -295,6 +300,7 @@ fn parse_single_prop(segment: &str, props: &mut Vec<RawTsxPropExtraction>) {
         name: prop_name.to_string(),
         raw_type: type_part.to_string(),
         is_optional,
+        is_spread_attributes: false,
     });
 }
 
@@ -316,4 +322,41 @@ fn find_prop_colon(s: &str) -> Option<usize> {
         }
     }
     None
+}
+
+#[allow(dead_code)]
+fn detect_react_context(source: &str) -> (Option<String>, Vec<String>) {
+    let mut provided = None;
+    let mut consumed = Vec::new();
+    for line in source.lines() {
+        let t = line.trim();
+        if t.contains("createContext") {
+            if let Some(p) = t.find("createContext") {
+                let after = &t[p + "createContext".len()..];
+                if let Some(lp) = after.find('(') {
+                    let inner = &after[lp + 1..];
+                    if let Some(rp) = inner.find(')') {
+                        let ty = inner[..rp].trim().trim_matches(|c| c == '<' || c == '>');
+                        if !ty.is_empty() && ty.chars().next().unwrap().is_uppercase() {
+                            provided = Some(ty.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if t.contains("useContext") {
+            if let Some(p) = t.find("useContext") {
+                let after = &t[p + "useContext".len()..];
+                if after.trim().starts_with('<') {
+                    if let Some(rp) = after.find('>') {
+                        let ty = after[1..rp].trim().to_string();
+                        if !ty.is_empty() {
+                            consumed.push(ty);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (provided, consumed)
 }

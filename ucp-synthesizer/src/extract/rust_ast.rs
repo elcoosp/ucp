@@ -213,8 +213,9 @@ impl Visit<'_> for StructComponentVisitor {
                                     line_start,
                                     props: props.clone(),
                                     is_struct_pattern: true,
-                                    provided_context: None,
-                                    consumed_contexts: vec![],
+                                    provided_context: detect_leptos_context(self.source.as_str()).0,
+                                    consumed_contexts: detect_leptos_context(self.source.as_str())
+                                        .1,
                                 });
                                 break;
                             }
@@ -465,4 +466,40 @@ impl GpuiComponentVisitor {
             }
         }
     }
+}
+
+#[allow(dead_code)]
+fn detect_leptos_context(source: &str) -> (Option<String>, Vec<String>) {
+    let mut provided = None;
+    let mut consumed = Vec::new();
+    for line in source.lines() {
+        let t = line.trim();
+        if t.contains("provide_context") {
+            if let Some(p) = t.find("provide_context") {
+                let after = &t[p + "provide_context".len()..];
+                if after.trim().starts_with("::<") {
+                    if let Some(rp) = after.find('>') {
+                        let ty = after[3..rp].trim().to_string();
+                        if !ty.is_empty() {
+                            provided = Some(ty);
+                        }
+                    }
+                }
+            }
+        }
+        if t.contains("use_context") {
+            if let Some(p) = t.find("use_context") {
+                let after = &t[p + "use_context".len()..];
+                if after.trim().starts_with("::<") {
+                    if let Some(rp) = after.find('>') {
+                        let ty = after[3..rp].trim().to_string();
+                        if !ty.is_empty() {
+                            consumed.push(ty);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (provided, consumed)
 }
