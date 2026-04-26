@@ -92,7 +92,9 @@
           "file_path": "/tmp/gpui-snap-47751/src/button.rs",
           "line_start": 4
         }
-      ]
+      ],
+      "provided_context": null,
+      "consumed_contexts": []
     }
   ],
   "stats": {

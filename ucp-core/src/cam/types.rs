@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Top-level canonical representation of a UI component across codebases.
+/// Top‑level canonical representation of a UI component across codebases.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use = "discarding a synthesized component is likely a bug"]
 pub struct CanonicalAbstractComponent {
@@ -11,6 +11,12 @@ pub struct CanonicalAbstractComponent {
     pub extracted_state_machine: Option<super::StateMachine>,
     pub extracted_parts: Vec<super::ExtractedPart>,
     pub source_repos: Vec<super::SourceAttribution>,
+    /// If the component provides a React/Dioxus/generic context, its type name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provided_context: Option<String>,
+    /// Types of contexts consumed by this component.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consumed_contexts: Vec<String>,
 }
 
 /// A single abstract prop in the canonical model.
@@ -39,7 +45,7 @@ pub struct PropSourceMapping {
     pub original_type: String,
 }
 
-/// A selectable sub-region of a component (slots, parts, etc.).
+/// A selectable sub‑region of a component (slots, parts, etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedPart {
     pub name: String,

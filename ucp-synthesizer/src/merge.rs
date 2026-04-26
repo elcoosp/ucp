@@ -73,6 +73,8 @@ fn deduplicate_components(
         let mut other_events_list: Vec<Vec<CanonicalAbstractEvent>> = Vec::new();
         let mut other_source_repos: Vec<SourceAttribution> = Vec::new();
         let mut fallback_state_machine: Option<StateMachine> = None;
+        let mut fallback_context: Option<String> = None;
+        let mut fallback_consumed: Option<Vec<String>> = None;
         let mut fallback_parts: Vec<ExtractedPart> = Vec::new();
 
         for &idx in &indices[1..] {
@@ -83,6 +85,12 @@ fn deduplicate_components(
 
             if fallback_state_machine.is_none() && other.extracted_state_machine.is_some() {
                 fallback_state_machine = other.extracted_state_machine.clone();
+            }
+            if fallback_context.is_none() && other.provided_context.is_some() {
+                fallback_context = other.provided_context.clone();
+            }
+            if fallback_consumed.is_none() && !other.consumed_contexts.is_empty() {
+                fallback_consumed = Some(other.consumed_contexts.clone());
             }
             if fallback_parts.is_empty() && !other.extracted_parts.is_empty() {
                 fallback_parts = other.extracted_parts.clone();
@@ -99,6 +107,16 @@ fn deduplicate_components(
 
         if base.extracted_state_machine.is_none() {
             base.extracted_state_machine = fallback_state_machine;
+        }
+        if base.provided_context.is_none() {
+            if let Some(ctx) = fallback_context {
+                base.provided_context = Some(ctx);
+            }
+        }
+        if base.consumed_contexts.is_empty() {
+            if let Some(consumed) = fallback_consumed {
+                base.consumed_contexts = consumed;
+            }
         }
         if base.extracted_parts.is_empty() {
             base.extracted_parts = fallback_parts;
@@ -355,6 +373,8 @@ mod tests {
                 file_path: format!("{}.rs", id),
                 line_start: 1,
             }],
+            provided_context: None,
+            consumed_contexts: vec![],
         }
     }
 

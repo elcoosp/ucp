@@ -191,7 +191,22 @@ async fn enrich_components_with_llm(
         let comp_display_name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
         let prompt = build_enrichment_prompt(comp_display_name, &source_code);
 
-        match infer_behavior(&client, ollama_url, &source_code, &prompt, model).await {
+        // Append context hints to the prompt
+        let mut full_prompt = prompt;
+        if let Some(ref provided_ctx) = comp.provided_context {
+            full_prompt.push_str(&format!(
+                "\n\nThis component provides a context of type `{}`.",
+                provided_ctx
+            ));
+        }
+        if !comp.consumed_contexts.is_empty() {
+            full_prompt.push_str(&format!(
+                "\n\nIt consumes contexts: {}.",
+                comp.consumed_contexts.join(", ")
+            ));
+        }
+
+        match infer_behavior(&client, ollama_url, &source_code, &full_prompt, model).await {
             Ok(llm_json) => {
                 let llm_response = match parse_enrichment_response(llm_json) {
                     Ok(r) => r,
@@ -231,11 +246,12 @@ async fn enrich_components_with_llm(
     Ok(any_success)
 }
 
-/// Convert a typed `SmdlComponent` into a CAM `StateMachine`.
-fn smdl_to_state_machine(smdl: &ucp_core::smdl::SmdlComponent) -> Option<StateMachine> {
+// ... rest of the functions unchanged, except we need to include context fields in unify_rust_component, unify_rust_component_struct, unify_tsx_component
+// We'll define them below.
+
+fn smdl_to_state_machine(smdl: &ucp_core::smdl::SmdlComponent) -> Option<StateMachine> { /* unchanged */
     let id = smdl.id.clone();
     let initial = smdl.initial.clone();
-
     let mut states = BTreeMap::new();
     for (state_name, state_value) in &smdl.states {
         let mut transitions = BTreeMap::new();
@@ -261,7 +277,6 @@ fn smdl_to_state_machine(smdl: &ucp_core::smdl::SmdlComponent) -> Option<StateMa
             },
         );
     }
-
     Some(StateMachine {
         id,
         initial,
@@ -269,10 +284,7 @@ fn smdl_to_state_machine(smdl: &ucp_core::smdl::SmdlComponent) -> Option<StateMa
     })
 }
 
-fn compute_purpose_hash_with_llm(
-    fingerprint: &SemanticFingerprint,
-    llm_description: &str,
-) -> String {
+fn compute_purpose_hash_with_llm(fingerprint: &SemanticFingerprint, llm_description: &str) -> String { /* unchanged */
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     fingerprint.purpose_hash.hash(&mut hasher);
     for word in llm_description.split_whitespace() {
@@ -283,7 +295,7 @@ fn compute_purpose_hash_with_llm(
     format!("{:016x}", hasher.finish())
 }
 
-fn detect_conflicts(components: &mut [CanonicalAbstractComponent]) {
+fn detect_conflicts(components: &mut [CanonicalAbstractComponent]) { /* unchanged */
     let mut hash_groups: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, comp) in components.iter().enumerate() {
         hash_groups
@@ -291,84 +303,36 @@ fn detect_conflicts(components: &mut [CanonicalAbstractComponent]) {
             .or_default()
             .push(idx);
     }
-
     let mut conflict_id_counter = 0u32;
-
     for indices in hash_groups.values() {
-        if indices.len() <= 1 {
-            continue;
-        }
-
+        if indices.len() <= 1 { continue; }
         let mut prop_entries: HashMap<String, Vec<usize>> = HashMap::new();
         for &idx in indices {
             for prop in &components[idx].props {
-                prop_entries
-                    .entry(prop.canonical_name.clone())
-                    .or_default()
-                    .push(idx);
+                prop_entries.entry(prop.canonical_name.clone()).or_default().push(idx);
             }
         }
-
         for (prop_name, member_indices) in &prop_entries {
-            let present_in: Vec<String> = member_indices
-                .iter()
-                .map(|&idx| {
-                    components[idx]
-                        .source_repos
-                        .first()
-                        .map(|s| s.file_path.clone())
-                        .unwrap_or_else(|| "unknown".to_string())
-                })
-                .collect();
-
-            let mut type_variants: Vec<String> = member_indices
-                .iter()
-                .map(|&idx| {
-                    components[idx]
-                        .props
-                        .iter()
-                        .find(|p| p.canonical_name == *prop_name)
-                        .map(|p| format!("{:?}", p.abstract_type))
-                        .unwrap_or_else(|| "missing".to_string())
-                })
-                .collect();
-            type_variants.sort();
-            type_variants.dedup();
-
-            if type_variants.len() <= 1 {
-                continue;
-            }
-
+            let present_in: Vec<String> = member_indices.iter().map(|&idx| {
+                components[idx].source_repos.first().map(|s| s.file_path.clone()).unwrap_or_else(|| "unknown".to_string())
+            }).collect();
+            let mut type_variants: Vec<String> = member_indices.iter().map(|&idx| {
+                components[idx].props.iter().find(|p| p.canonical_name == *prop_name)
+                    .map(|p| format!("{:?}", p.abstract_type)).unwrap_or_else(|| "missing".to_string())
+            }).collect();
+            type_variants.sort(); type_variants.dedup();
+            if type_variants.len() <= 1 { continue; }
             conflict_id_counter += 1;
             let conflict_id = format!("conf_{:03}", conflict_id_counter);
-
             let has_count = member_indices.len();
             let member_set: HashSet<usize> = member_indices.iter().copied().collect();
-            let absent_in: Vec<String> = (0..components.len())
-                .filter(|i| !member_set.contains(i))
-                .map(|idx| {
-                    components[idx]
-                        .source_repos
-                        .first()
-                        .map(|s| s.file_path.clone())
-                        .unwrap_or_else(|| "unknown".to_string())
-                })
-                .filter(|s| !present_in.contains(s))
-                .collect();
-
+            let absent_in: Vec<String> = (0..components.len()).filter(|i| !member_set.contains(i))
+                .map(|idx| components[idx].source_repos.first().map(|s| s.file_path.clone()).unwrap_or_else(|| "unknown".to_string()))
+                .filter(|s| !present_in.contains(s)).collect();
             let confidence = if has_count > 2 { 0.4 } else { 0.7 };
-            let resolution = if has_count > 2 {
-                ResolutionStrategy::FlagForHumanReview
-            } else {
-                ResolutionStrategy::IncludeMajority
-            };
-
+            let resolution = if has_count > 2 { ResolutionStrategy::FlagForHumanReview } else { ResolutionStrategy::IncludeMajority };
             for &idx in member_indices {
-                if let Some(prop) = components[idx]
-                    .props
-                    .iter_mut()
-                    .find(|p| p.canonical_name == *prop_name)
-                {
+                if let Some(prop) = components[idx].props.iter_mut().find(|p| p.canonical_name == *prop_name) {
                     prop.conflicts.push(Conflict {
                         id: conflict_id.clone(),
                         field: format!("props.{}", prop_name),
@@ -383,275 +347,116 @@ fn detect_conflicts(components: &mut [CanonicalAbstractComponent]) {
     }
 }
 
-fn compute_confidence(props: &[CanonicalAbstractProp], base: f32) -> f32 {
-    let any_count = props
-        .iter()
-        .filter(|p| p.abstract_type == AbstractPropType::Any)
-        .count();
+fn compute_confidence(props: &[CanonicalAbstractProp], base: f32) -> f32 { /* unchanged */
+    let any_count = props.iter().filter(|p| p.abstract_type == AbstractPropType::Any).count();
     let total = props.len().max(1);
     let any_ratio = any_count as f32 / total as f32;
     (base - any_ratio * ANY_PENALTY_PER_PROP * any_count as f32).max(0.1)
 }
 
-fn extract_events_from_props(props: &[CanonicalAbstractProp]) -> Vec<CanonicalAbstractEvent> {
-    props
-        .iter()
-        .filter_map(|p| {
-            if let AbstractPropType::AsyncEventHandler(payload_types) = &p.abstract_type {
-                // Remove the leading "on_" and lowercase the first letter
-                let event_name = p
-                    .canonical_name
-                    .strip_prefix("on_")
-                    .or_else(|| p.canonical_name.strip_prefix("on"))
-                    .unwrap_or(&p.canonical_name)
-                    .to_string();
-                let event_name = if event_name.is_empty() {
-                    p.canonical_name.clone()
-                } else {
-                    let mut chars = event_name.chars();
-                    match chars.next() {
-                        Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
-                        None => String::new(),
-                    }
-                };
-                Some(CanonicalAbstractEvent {
-                    canonical_name: event_name,
-                    abstract_payload: AbstractPropType::AsyncEventHandler(payload_types.clone()),
-                })
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-fn populate_extracted_parts(props: &[CanonicalAbstractProp]) -> Vec<ExtractedPart> {
-    props
-        .iter()
-        .filter(|prop| matches!(prop.abstract_type, AbstractPropType::Renderable))
-        .map(|prop| ExtractedPart {
-            name: prop.canonical_name.clone(),
-            selectable: true,
-        })
-        .collect()
-}
-
-fn unify_rust_component(
-    raw: &rust_ast::RawComponentExtraction,
-    file_path: &str,
-) -> Result<CanonicalAbstractComponent> {
-    let props: Vec<CanonicalAbstractProp> = raw
-        .props
-        .iter()
-        .map(|rp| {
-// CAM-TYPE-REPLACE-MARKER
-            let cam_type = if rp.is_spread_attributes { AbstractPropType::SpreadAttributes } else { map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any) };
-                    let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
-            let reactivity = derive_reactivity(&cam_type, rp.has_default);
-            CanonicalAbstractProp {
-                canonical_name: rp.name.clone(),
-                abstract_type: cam_type,
-                reactivity,
-                sources: vec![PropSourceMapping {
-                    repo_id: file_path.to_string(),
-                    original_name: rp.name.clone(),
-                    original_type: rp.raw_type.clone(),
-                }],
-                confidence: 0.0,
-                conflicts: vec![],
-            }
-        })
-        .collect();
-
-    let confidence = compute_confidence(&props, BASE_CONFIDENCE_RUST);
-    let events = extract_events_from_props(&props);
-    let extracted_parts = populate_extracted_parts(&props);
-    let props_with_confidence: Vec<_> = props
-        .into_iter()
-        .map(|mut p| {
-            p.confidence = confidence;
-            p
-        })
-        .collect();
-
-    Ok(CanonicalAbstractComponent {
-        id: format!("rust:{}:{}", file_path, raw.name),
-        semantic_fingerprint: SemanticFingerprint {
-            purpose_hash: compute_purpose_hash(&raw.name, &props_with_confidence),
-            normalized_prop_names: props_with_confidence
-                .iter()
-                .map(|p| p.canonical_name.clone())
-                .collect(),
-        },
-        props: props_with_confidence,
-        events,
-        extracted_state_machine: None,
-        extracted_parts,
-        source_repos: vec![SourceAttribution {
-            repo_url: "local".to_string(),
-            file_path: file_path.to_string(),
-            line_start: raw.line_start,
-        }],
-    })
-}
-
-fn unify_tsx_component(
-    raw: &tsx_ast::RawTsxExtraction,
-    file_path: &str,
-) -> Result<CanonicalAbstractComponent> {
-    let props: Vec<CanonicalAbstractProp> = raw
-        .props
-        .iter()
-        .map(|rp| {
-            let cam_type = if rp.raw_type.contains("=>") || rp.raw_type.contains("void") {
-                AbstractPropType::AsyncEventHandler(vec![])
-            } else {
-                map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any)
+fn extract_events_from_props(props: &[CanonicalAbstractProp]) -> Vec<CanonicalAbstractEvent> { /* unchanged */
+    props.iter().filter_map(|p| {
+        if let AbstractPropType::AsyncEventHandler(payload_types) = &p.abstract_type {
+            let event_name = p.canonical_name.strip_prefix("on_").or_else(|| p.canonical_name.strip_prefix("on")).unwrap_or(&p.canonical_name).to_string();
+            let event_name = if event_name.is_empty() { p.canonical_name.clone() } else {
+                let mut chars = event_name.chars();
+                match chars.next() { Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(), None => String::new() }
             };
-            let reactivity = derive_reactivity(&cam_type, false);
-            CanonicalAbstractProp {
-                canonical_name: rp.name.clone(),
-                abstract_type: cam_type,
-                reactivity,
-                sources: vec![PropSourceMapping {
-                    repo_id: file_path.to_string(),
-                    original_name: rp.name.clone(),
-                    original_type: rp.raw_type.clone(),
-                }],
-                confidence: 0.0,
-                conflicts: vec![],
-            }
-        })
-        .collect();
-
-    let confidence = compute_confidence(&props, BASE_CONFIDENCE_TSX);
-    let events = extract_events_from_props(&props);
-    let extracted_parts = populate_extracted_parts(&props);
-    let props_with_confidence: Vec<_> = props
-        .into_iter()
-        .map(|mut p| {
-            p.confidence = confidence;
-            p
-        })
-        .collect();
-
-    Ok(CanonicalAbstractComponent {
-        id: format!("tsx:{}:{}", file_path, raw.name),
-        semantic_fingerprint: SemanticFingerprint {
-            purpose_hash: compute_purpose_hash(&raw.name, &props_with_confidence),
-            normalized_prop_names: props_with_confidence
-                .iter()
-                .map(|p| p.canonical_name.clone())
-                .collect(),
-        },
-        props: props_with_confidence,
-        events,
-        extracted_state_machine: None,
-        extracted_parts,
-        source_repos: vec![SourceAttribution {
-            repo_url: "local".to_string(),
-            file_path: file_path.to_string(),
-            line_start: raw.line_start,
-        }],
-    })
+            Some(CanonicalAbstractEvent { canonical_name: event_name, abstract_payload: AbstractPropType::AsyncEventHandler(payload_types.clone()) })
+        } else { None }
+    }).collect()
 }
 
-/// Derive the reactivity model from the abstract prop type and whether a
-/// default value is provided.
-///
-/// - `ControlFlag` **with** a default → `Static` (set once, has fallback)
-/// - `ControlFlag` **without** a default → `Uncontrolled` (required, component manages its own default)
-/// - `ControlledValue(_)` → `Controlled`
-/// - `UncontrolledValue(_)` → `Uncontrolled`
-/// - Everything else → `Static`
-fn derive_reactivity(cam_type: &AbstractPropType, has_default: bool) -> AbstractReactivity {
-    match cam_type {
-        AbstractPropType::ControlledValue(_) => AbstractReactivity::Controlled,
-        AbstractPropType::UncontrolledValue(_) => AbstractReactivity::Uncontrolled,
-        AbstractPropType::ControlFlag if has_default => AbstractReactivity::Static,
-        AbstractPropType::ControlFlag => AbstractReactivity::Uncontrolled,
-        AbstractPropType::StaticValue(_) => AbstractReactivity::Static,
-        _ => AbstractReactivity::Static,
-    }
+fn populate_extracted_parts(props: &[CanonicalAbstractProp]) -> Vec<ExtractedPart> { /* unchanged */
+    props.iter().filter(|prop| matches!(prop.abstract_type, AbstractPropType::Renderable))
+        .map(|prop| ExtractedPart { name: prop.canonical_name.clone(), selectable: true }).collect()
 }
 
-fn compute_purpose_hash(name: &str, props: &[CanonicalAbstractProp]) -> String {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    name.to_lowercase().hash(&mut hasher);
-    let mut prop_names: Vec<&str> = props.iter().map(|p| p.canonical_name.as_str()).collect();
-    prop_names.sort();
-    for pn in &prop_names {
-        pn.hash(&mut hasher);
-    }
-    format!("{:016x}", hasher.finish())
-}
-
-fn walk_source_dir<F>(dir: &str, mut callback: F) -> Result<()>
-where
-    F: FnMut(&std::path::Path) -> Result<()>,
-{
-    let root = Path::new(dir);
-    if !root.exists() {
-        return Ok(());
-    }
-
-    fn visit<F>(path: &Path, callback: &mut F, is_root: bool) -> Result<()>
-    where
-        F: FnMut(&std::path::Path) -> Result<()>,
-    {
-        if path.is_dir() {
-            if !is_root {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with('.')
-                        || ["node_modules", "target", "dist", "build", ".git"].contains(&name)
-                    {
-                        return Ok(());
-                    }
-                }
-            }
-            for entry in std::fs::read_dir(path)? {
-                visit(&entry?.path(), callback, false)?;
-            }
-        } else if path.is_file() {
-            callback(path)?;
-        }
-        Ok(())
-    }
-
-    visit(root, &mut callback, true)
-}
-
-impl SynthesisOutput {
-    pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path).map_err(ucp_core::UcpError::Io)?;
-        serde_json::from_str(&content).map_err(ucp_core::UcpError::Json)
-    }
-
-    pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self).map_err(ucp_core::UcpError::Json)?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(ucp_core::UcpError::Io)?;
-        }
-        std::fs::write(path, json).map_err(ucp_core::UcpError::Io)?;
-        Ok(())
-    }
-}
-
-fn unify_rust_component_struct(raw: &rust_ast::RawComponentExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
+fn unify_rust_component(raw: &rust_ast::RawComponentExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
     let props: Vec<CanonicalAbstractProp> = raw.props.iter().map(|rp| {
-// CAM-TYPE-REPLACE-MARKER
         let cam_type = if rp.is_spread_attributes { AbstractPropType::SpreadAttributes } else { map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any) };
-                    let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
+        let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
         let reactivity = derive_reactivity(&cam_type, rp.has_default);
         CanonicalAbstractProp {
             canonical_name: rp.name.clone(),
             abstract_type: cam_type,
             reactivity,
-            sources: vec![PropSourceMapping {
-                repo_id: file_path.to_string(),
-                original_name: rp.name.clone(),
-                original_type: rp.raw_type.clone(),
-            }],
+            sources: vec![PropSourceMapping { repo_id: file_path.to_string(), original_name: rp.name.clone(), original_type: rp.raw_type.clone() }],
+            confidence: 0.0,
+            conflicts: vec![],
+        }
+    }).collect();
+
+    let confidence = compute_confidence(&props, BASE_CONFIDENCE_RUST);
+    let events = extract_events_from_props(&props);
+    let extracted_parts = populate_extracted_parts(&props);
+    let props_with_confidence: Vec<_> = props.into_iter().map(|mut p| { p.confidence = confidence; p }).collect();
+
+    Ok(CanonicalAbstractComponent {
+        id: format!("rust:{}:{}", file_path, raw.name),
+        semantic_fingerprint: SemanticFingerprint {
+            purpose_hash: compute_purpose_hash(&raw.name, &props_with_confidence),
+            normalized_prop_names: props_with_confidence.iter().map(|p| p.canonical_name.clone()).collect(),
+        },
+        props: props_with_confidence,
+        events,
+        extracted_state_machine: None,
+        extracted_parts,
+        source_repos: vec![SourceAttribution { repo_url: "local".to_string(), file_path: file_path.to_string(), line_start: raw.line_start }],
+        provided_context: raw.provided_context.clone(),
+        consumed_contexts: raw.consumed_contexts.clone(),
+    })
+}
+
+fn unify_tsx_component(raw: &tsx_ast::RawTsxExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
+    let props: Vec<CanonicalAbstractProp> = raw.props.iter().map(|rp| {
+        let cam_type = if rp.raw_type.contains("=>") || rp.raw_type.contains("void") {
+            AbstractPropType::AsyncEventHandler(vec![])
+        } else {
+            map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any)
+        };
+        let reactivity = derive_reactivity(&cam_type, false);
+        CanonicalAbstractProp {
+            canonical_name: rp.name.clone(),
+            abstract_type: cam_type,
+            reactivity,
+            sources: vec![PropSourceMapping { repo_id: file_path.to_string(), original_name: rp.name.clone(), original_type: rp.raw_type.clone() }],
+            confidence: 0.0,
+            conflicts: vec![],
+        }
+    }).collect();
+
+    let confidence = compute_confidence(&props, BASE_CONFIDENCE_TSX);
+    let events = extract_events_from_props(&props);
+    let extracted_parts = populate_extracted_parts(&props);
+    let props_with_confidence: Vec<_> = props.into_iter().map(|mut p| { p.confidence = confidence; p }).collect();
+
+    Ok(CanonicalAbstractComponent {
+        id: format!("tsx:{}:{}", file_path, raw.name),
+        semantic_fingerprint: SemanticFingerprint {
+            purpose_hash: compute_purpose_hash(&raw.name, &props_with_confidence),
+            normalized_prop_names: props_with_confidence.iter().map(|p| p.canonical_name.clone()).collect(),
+        },
+        props: props_with_confidence,
+        events,
+        extracted_state_machine: None,
+        extracted_parts,
+        source_repos: vec![SourceAttribution { repo_url: "local".to_string(), file_path: file_path.to_string(), line_start: raw.line_start }],
+        provided_context: None,   // TSX extraction doesn't detect contexts yet
+        consumed_contexts: vec![],
+    })
+}
+
+fn unify_rust_component_struct(raw: &rust_ast::RawComponentExtraction, file_path: &str) -> Result<CanonicalAbstractComponent> {
+    let props: Vec<CanonicalAbstractProp> = raw.props.iter().map(|rp| {
+        let cam_type = if rp.is_spread_attributes { AbstractPropType::SpreadAttributes } else { map_raw_type_to_cam(&rp.raw_type).unwrap_or(AbstractPropType::Any) };
+        let cam_type = if rp.is_event { AbstractPropType::AsyncEventHandler(vec![]) } else { cam_type };
+        let reactivity = derive_reactivity(&cam_type, rp.has_default);
+        CanonicalAbstractProp {
+            canonical_name: rp.name.clone(),
+            abstract_type: cam_type,
+            reactivity,
+            sources: vec![PropSourceMapping { repo_id: file_path.to_string(), original_name: rp.name.clone(), original_type: rp.raw_type.clone() }],
             confidence: 0.0,
             conflicts: vec![],
         }
@@ -672,14 +477,65 @@ fn unify_rust_component_struct(raw: &rust_ast::RawComponentExtraction, file_path
         events,
         extracted_state_machine: None,
         extracted_parts,
-        source_repos: vec![SourceAttribution {
-            repo_url: "local".to_string(),
-            file_path: file_path.to_string(),
-            line_start: raw.line_start,
-        }],
+        source_repos: vec![SourceAttribution { repo_url: "local".to_string(), file_path: file_path.to_string(), line_start: raw.line_start }],
+        provided_context: raw.provided_context.clone(),
+        consumed_contexts: raw.consumed_contexts.clone(),
     })
 }
 
+fn derive_reactivity(cam_type: &AbstractPropType, has_default: bool) -> AbstractReactivity {
+    match cam_type {
+        AbstractPropType::ControlledValue(_) => AbstractReactivity::Controlled,
+        AbstractPropType::UncontrolledValue(_) => AbstractReactivity::Uncontrolled,
+        AbstractPropType::ControlFlag if has_default => AbstractReactivity::Static,
+        AbstractPropType::ControlFlag => AbstractReactivity::Uncontrolled,
+        AbstractPropType::StaticValue(_) => AbstractReactivity::Static,
+        _ => AbstractReactivity::Static,
+    }
+}
+
+fn compute_purpose_hash(name: &str, props: &[CanonicalAbstractProp]) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    name.to_lowercase().hash(&mut hasher);
+    let mut prop_names: Vec<&str> = props.iter().map(|p| p.canonical_name.as_str()).collect();
+    prop_names.sort();
+    for pn in &prop_names { pn.hash(&mut hasher); }
+    format!("{:016x}", hasher.finish())
+}
+
+fn walk_source_dir<F>(dir: &str, mut callback: F) -> Result<()>
+where
+    F: FnMut(&std::path::Path) -> Result<()>,
+{
+    let root = Path::new(dir);
+    if !root.exists() { return Ok(()); }
+    fn visit<F>(path: &Path, callback: &mut F, is_root: bool) -> Result<()>
+    where F: FnMut(&std::path::Path) -> Result<()> {
+        if path.is_dir() {
+            if !is_root {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with('.') || ["node_modules","target","dist","build",".git"].contains(&name) { return Ok(()); }
+                }
+            }
+            for entry in std::fs::read_dir(path)? { visit(&entry?.path(), callback, false)?; }
+        } else if path.is_file() { callback(path)?; }
+        Ok(())
+    }
+    visit(root, &mut callback, true)
+}
+
+impl SynthesisOutput {
+    pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
+        let content = std::fs::read_to_string(path).map_err(ucp_core::UcpError::Io)?;
+        serde_json::from_str(&content).map_err(ucp_core::UcpError::Json)
+    }
+    pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
+        let json = serde_json::to_string_pretty(self).map_err(ucp_core::UcpError::Json)?;
+        if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).map_err(ucp_core::UcpError::Io)?; }
+        std::fs::write(path, json).map_err(ucp_core::UcpError::Io)?;
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -690,42 +546,7 @@ mod tests {
         let smdl = ucp_core::smdl::SmdlComponent {
             id: "test-dialog".to_string(),
             initial: "Closed".to_string(),
-            states: [
-                (
-                    "Closed".to_string(),
-                    ucp_core::smdl::SmdlState {
-                        on: Some(
-                            [(
-                                "OPEN".to_string(),
-                                ucp_core::smdl::SmdlTransition {
-                                    target: "Open".to_string(),
-                                    side_effects: vec!["focus: move_to".to_string()],
-                                },
-                            )]
-                            .into_iter()
-                            .collect(),
-                        ),
-                    },
-                ),
-                (
-                    "Open".to_string(),
-                    ucp_core::smdl::SmdlState {
-                        on: Some(
-                            [(
-                                "CLOSE".to_string(),
-                                ucp_core::smdl::SmdlTransition {
-                                    target: "Closed".to_string(),
-                                    side_effects: vec![],
-                                },
-                            )]
-                            .into_iter()
-                            .collect(),
-                        ),
-                    },
-                ),
-            ]
-            .into_iter()
-            .collect(),
+            states: [("Closed".to_string(), ucp_core::smdl::SmdlState { on: Some( [("OPEN".to_string(), ucp_core::smdl::SmdlTransition { target: "Open".to_string(), side_effects: vec!["focus: move_to".to_string()] })].into_iter().collect() ) }), ("Open".to_string(), ucp_core::smdl::SmdlState { on: Some( [("CLOSE".to_string(), ucp_core::smdl::SmdlTransition { target: "Closed".to_string(), side_effects: vec![] })].into_iter().collect() ) })].into_iter().collect(),
         };
         let machine = smdl_to_state_machine(&smdl).unwrap();
         assert_eq!(machine.id, "test-dialog");
@@ -738,62 +559,27 @@ mod tests {
 
     #[test]
     fn smdl_to_state_machine_returns_none_for_empty_fields() {
-        let smdl = ucp_core::smdl::SmdlComponent {
-            id: "x".to_string(),
-            initial: String::new(),
-            states: std::collections::BTreeMap::new(),
-        };
-        // Empty initial is valid structurally but semantically questionable;
-        // the function returns Some regardless (no field-missing check).
+        let smdl = ucp_core::smdl::SmdlComponent { id: "x".into(), initial: String::new(), states: BTreeMap::new() };
         assert!(smdl_to_state_machine(&smdl).is_some());
     }
 
     #[test]
     fn smdl_to_state_machine_handles_empty_states() {
-        let smdl = ucp_core::smdl::SmdlComponent {
-            id: "empty".to_string(),
-            initial: "Idle".to_string(),
-            states: [("Idle".to_string(), ucp_core::smdl::SmdlState { on: None })]
-                .into_iter()
-                .collect(),
-        };
-        assert!(smdl_to_state_machine(&smdl).unwrap().states["Idle"]
-            .on
-            .is_none());
+        let smdl = ucp_core::smdl::SmdlComponent { id: "empty".into(), initial: "Idle".into(), states: [("Idle".into(), ucp_core::smdl::SmdlState { on: None })].into_iter().collect() };
+        assert!(smdl_to_state_machine(&smdl).unwrap().states["Idle"].on.is_none());
     }
 
     #[test]
     fn compute_confidence_no_any_props() {
-        let props = vec![CanonicalAbstractProp {
-            canonical_name: "visible".into(),
-            abstract_type: AbstractPropType::ControlFlag,
-            reactivity: AbstractReactivity::Static,
-            sources: vec![],
-            confidence: 0.0,
-            conflicts: vec![],
-        }];
+        let props = vec![CanonicalAbstractProp { canonical_name: "visible".into(), abstract_type: AbstractPropType::ControlFlag, reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] }];
         assert_eq!(compute_confidence(&props, BASE_CONFIDENCE_RUST), 0.95);
     }
 
     #[test]
     fn compute_confidence_with_any_penalty() {
         let props = vec![
-            CanonicalAbstractProp {
-                canonical_name: "visible".into(),
-                abstract_type: AbstractPropType::ControlFlag,
-                reactivity: AbstractReactivity::Static,
-                sources: vec![],
-                confidence: 0.0,
-                conflicts: vec![],
-            },
-            CanonicalAbstractProp {
-                canonical_name: "data".into(),
-                abstract_type: AbstractPropType::Any,
-                reactivity: AbstractReactivity::Static,
-                sources: vec![],
-                confidence: 0.0,
-                conflicts: vec![],
-            },
+            CanonicalAbstractProp { canonical_name: "visible".into(), abstract_type: AbstractPropType::ControlFlag, reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] },
+            CanonicalAbstractProp { canonical_name: "data".into(), abstract_type: AbstractPropType::Any, reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] },
         ];
         let conf = compute_confidence(&props, BASE_CONFIDENCE_RUST);
         assert!((conf - 0.91).abs() < 0.001);
@@ -801,14 +587,7 @@ mod tests {
 
     #[test]
     fn compute_confidence_never_below_floor() {
-        let any_prop = || CanonicalAbstractProp {
-            canonical_name: "x".into(),
-            abstract_type: AbstractPropType::Any,
-            reactivity: AbstractReactivity::Static,
-            sources: vec![],
-            confidence: 0.0,
-            conflicts: vec![],
-        };
+        let any_prop = || CanonicalAbstractProp { canonical_name: "x".into(), abstract_type: AbstractPropType::Any, reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] };
         let props: Vec<_> = (0..20).map(|_| any_prop()).collect();
         assert!(compute_confidence(&props, 0.95) >= 0.1);
     }
@@ -816,22 +595,8 @@ mod tests {
     #[test]
     fn extract_events_strips_on_prefix() {
         let props = vec![
-            CanonicalAbstractProp {
-                canonical_name: "onClick".into(),
-                abstract_type: AbstractPropType::AsyncEventHandler(vec![]),
-                reactivity: AbstractReactivity::Static,
-                sources: vec![],
-                confidence: 0.0,
-                conflicts: vec![],
-            },
-            CanonicalAbstractProp {
-                canonical_name: "label".into(),
-                abstract_type: AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
-                reactivity: AbstractReactivity::Static,
-                sources: vec![],
-                confidence: 0.0,
-                conflicts: vec![],
-            },
+            CanonicalAbstractProp { canonical_name: "onClick".into(), abstract_type: AbstractPropType::AsyncEventHandler(vec![]), reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] },
+            CanonicalAbstractProp { canonical_name: "label".into(), abstract_type: AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)), reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] },
         ];
         let events = extract_events_from_props(&props);
         assert_eq!(events.len(), 1);
@@ -840,31 +605,18 @@ mod tests {
 
     #[test]
     fn extract_events_preserves_non_on_prefix() {
-        let props = vec![CanonicalAbstractProp {
-            canonical_name: "submit".into(),
-            abstract_type: AbstractPropType::AsyncEventHandler(vec![]),
-            reactivity: AbstractReactivity::Static,
-            sources: vec![],
-            confidence: 0.0,
-            conflicts: vec![],
-        }];
+        let props = vec![CanonicalAbstractProp { canonical_name: "submit".into(), abstract_type: AbstractPropType::AsyncEventHandler(vec![]), reactivity: AbstractReactivity::Static, sources: vec![], confidence: 0.0, conflicts: vec![] }];
         let events = extract_events_from_props(&props);
         assert_eq!(events[0].canonical_name, "submit");
     }
 
     #[test]
     fn derive_reactivity_control_flag_with_default_is_static() {
-        assert_eq!(
-            derive_reactivity(&AbstractPropType::ControlFlag, true),
-            AbstractReactivity::Static
-        );
+        assert_eq!(derive_reactivity(&AbstractPropType::ControlFlag, true), AbstractReactivity::Static);
     }
 
     #[test]
     fn derive_reactivity_control_flag_without_default_is_uncontrolled() {
-        assert_eq!(
-            derive_reactivity(&AbstractPropType::ControlFlag, false),
-            AbstractReactivity::Uncontrolled
-        );
+        assert_eq!(derive_reactivity(&AbstractPropType::ControlFlag, false), AbstractReactivity::Uncontrolled);
     }
 }
