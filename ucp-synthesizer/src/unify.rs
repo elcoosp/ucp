@@ -9,7 +9,6 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
 /// Map a raw type string to CAM abstract type and an optional concrete type string.
 pub fn map_raw_type_with_concrete(raw_type: &str) -> Result<(AbstractPropType, Option<String>)> {
     let clean = raw_type.replace(' ', "");
-    let concrete = Some(clean.clone()); // default: cleaned type
 
     // Reactive signal wrappers → ControlledValue(inner)
     if clean.starts_with("RwSignal<") || clean.starts_with("Signal<") {
