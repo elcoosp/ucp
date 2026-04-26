@@ -1,3 +1,4 @@
+#[cfg(feature = "github-discovery")]
 use serde::{Deserialize, Serialize};
 use ucp_core::Result;
 

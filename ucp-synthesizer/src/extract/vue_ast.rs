@@ -1,5 +1,5 @@
-use ucp_core::Result;
 use super::rust_ast::{RawComponentExtraction, RawPropExtraction};
+use ucp_core::Result;
 
 pub fn extract_vue_components(source: &str) -> Result<Vec<RawComponentExtraction>> {
     let mut components = Vec::new();
@@ -14,7 +14,7 @@ pub fn extract_vue_components(source: &str) -> Result<Vec<RawComponentExtraction
                     let props_str = &inner[..props_end];
                     let props = parse_vue_props(props_str);
                     // Extract defineEmits<{ ... }>()
-                    let events = extract_vue_events(script);
+                    let _events = extract_vue_events(script);
                     let name = extract_vue_component_name(source);
                     components.push(RawComponentExtraction {
                         name: name.unwrap_or_else(|| "VueComponent".to_string()),
@@ -35,7 +35,9 @@ fn parse_vue_props(props_str: &str) -> Vec<RawPropExtraction> {
     let mut props = Vec::new();
     for part in props_str.split(';') {
         let part = part.trim();
-        if part.is_empty() { continue; }
+        if part.is_empty() {
+            continue;
+        }
         let has_default = part.contains('?');
         let name_part = part.split(':').next().unwrap_or(part).trim();
         let name = name_part.trim_end_matches('?');
@@ -55,14 +57,21 @@ fn extract_vue_events(script: &str) -> Vec<String> {
     if let Some(emits_start) = script.find("defineEmits<{") {
         let inner = &script[emits_start + "defineEmits<{".len()..];
         if let Some(emits_end) = inner.find("}>()") {
-            return inner[..emits_end].split(',').map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string()).collect();
+            return inner[..emits_end]
+                .split(',')
+                .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                .collect();
         }
     }
     vec![]
 }
 
 fn extract_vue_component_name(source: &str) -> Option<String> {
-    source.lines().next().and_then(|l| l.split_whitespace().next()).map(|s| s.to_string())
+    source
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().next())
+        .map(|s| s.to_string())
 }
 
 #[cfg(test)]

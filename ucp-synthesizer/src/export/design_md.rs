@@ -1,8 +1,8 @@
+use crate::extract::tokens::DtcgTokens;
+use crate::pipeline::SynthesisOutput;
+use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use serde::Serialize;
-use crate::pipeline::SynthesisOutput;
-use crate::extract::tokens::DtcgTokens;
 use ucp_core::cam::*;
 use ucp_core::Result;
 
@@ -49,8 +49,7 @@ pub fn export_design_md(
 
     // YAML front matter
     let front_matter = build_front_matter(tokens);
-    let yaml = serde_yaml::to_string(&front_matter)
-        .unwrap_or_else(|_| String::new());
+    let yaml = serde_yaml::to_string(&front_matter).unwrap_or_else(|_| String::new());
     md.push_str("---\n");
     md.push_str(&yaml);
     md.push_str("---\n\n");
@@ -102,12 +101,24 @@ pub fn export_design_md(
             md.push_str("| Name | Type | Required | Default | Description |\n");
             md.push_str("|------|------|----------|---------|-------------|\n");
             for prop in &comp.props {
-                let con_type = prop.concrete_type.clone().unwrap_or_else(
-                    || format!("{:?}", prop.abstract_type));
-                let required = if prop.reactivity != AbstractReactivity::Static { "Yes" } else { "No" };
-                let default = if prop.reactivity == AbstractReactivity::Static { "default" } else { "—" };
-                md.push_str(&format!("| `{}` | `{}` | {} | {} | |\n",
-                    prop.canonical_name, con_type, required, default));
+                let con_type = prop
+                    .concrete_type
+                    .clone()
+                    .unwrap_or_else(|| format!("{:?}", prop.abstract_type));
+                let required = if prop.reactivity != AbstractReactivity::Static {
+                    "Yes"
+                } else {
+                    "No"
+                };
+                let default = if prop.reactivity == AbstractReactivity::Static {
+                    "default"
+                } else {
+                    "—"
+                };
+                md.push_str(&format!(
+                    "| `{}` | `{}` | {} | {} | |\n",
+                    prop.canonical_name, con_type, required, default
+                ));
             }
             md.push('\n');
         }
@@ -116,7 +127,10 @@ pub fn export_design_md(
         if !comp.events.is_empty() {
             md.push_str("#### Events\n\n");
             for ev in &comp.events {
-                md.push_str(&format!("- **`{}`**: `{:?}`\n", ev.canonical_name, ev.abstract_payload));
+                md.push_str(&format!(
+                    "- **`{}`**: `{:?}`\n",
+                    ev.canonical_name, ev.abstract_payload
+                ));
             }
             md.push('\n');
         }
@@ -138,10 +152,20 @@ pub fn export_design_md(
             md.push_str("| State | Transitions |\n");
             md.push_str("|-------|-------------|\n");
             for (state_name, node) in &sm.states {
-                let transitions: Vec<String> = node.on.as_ref()
-                    .map(|on| on.iter().map(|(ev, t)| format!("`{}` → `{}`", ev, t.target)).collect())
+                let transitions: Vec<String> = node
+                    .on
+                    .as_ref()
+                    .map(|on| {
+                        on.iter()
+                            .map(|(ev, t)| format!("`{}` → `{}`", ev, t.target))
+                            .collect()
+                    })
                     .unwrap_or_default();
-                md.push_str(&format!("| `{}` | {} |\n", state_name, transitions.join(", ")));
+                md.push_str(&format!(
+                    "| `{}` | {} |\n",
+                    state_name,
+                    transitions.join(", ")
+                ));
             }
             md.push('\n');
         }
@@ -156,23 +180,54 @@ pub fn export_design_md(
 fn build_front_matter(tokens: Option<&DtcgTokens>) -> DesignMdFrontMatter {
     match tokens {
         Some(tok) => DesignMdFrontMatter {
-            colors: if tok.colors.is_empty() { None } else {
-                Some(tok.colors.iter().map(|(k, v)| ColorToken {
-                    name: k.clone(), value: v.clone(), description: None,
-                }).collect())
+            colors: if tok.colors.is_empty() {
+                None
+            } else {
+                Some(
+                    tok.colors
+                        .iter()
+                        .map(|(k, v)| ColorToken {
+                            name: k.clone(),
+                            value: v.clone(),
+                            description: None,
+                        })
+                        .collect(),
+                )
             },
-            typography: if tok.typography.is_empty() { None } else {
-                Some(tok.typography.iter().map(|(k, v)| TypographyToken {
-                    name: k.clone(), value: v.clone(), description: None,
-                }).collect())
+            typography: if tok.typography.is_empty() {
+                None
+            } else {
+                Some(
+                    tok.typography
+                        .iter()
+                        .map(|(k, v)| TypographyToken {
+                            name: k.clone(),
+                            value: v.clone(),
+                            description: None,
+                        })
+                        .collect(),
+                )
             },
-            spacing: if tok.spacing.is_empty() { None } else {
-                Some(tok.spacing.iter().map(|(k, v)| SpacingToken {
-                    name: k.clone(), value: v.clone(), description: None,
-                }).collect())
+            spacing: if tok.spacing.is_empty() {
+                None
+            } else {
+                Some(
+                    tok.spacing
+                        .iter()
+                        .map(|(k, v)| SpacingToken {
+                            name: k.clone(),
+                            value: v.clone(),
+                            description: None,
+                        })
+                        .collect(),
+                )
             },
         },
-        None => DesignMdFrontMatter { colors: None, typography: None, spacing: None },
+        None => DesignMdFrontMatter {
+            colors: None,
+            typography: None,
+            spacing: None,
+        },
     }
 }
 
@@ -181,7 +236,8 @@ fn extract_variants(comp: &CanonicalAbstractComponent) -> Vec<(String, Vec<Strin
     for p in &comp.props {
         if let Some(conc) = &p.concrete_type {
             if conc.starts_with("enum: ") {
-                let values: Vec<String> = conc[6..].split(',').map(|s| s.trim().to_string()).collect();
+                let values: Vec<String> =
+                    conc[6..].split(',').map(|s| s.trim().to_string()).collect();
                 variants.push((p.canonical_name.clone(), values));
             }
         }
@@ -209,21 +265,27 @@ mod tests {
                     abstract_type: AbstractPropType::ControlFlag,
                     reactivity: AbstractReactivity::Static,
                     concrete_type: Some("bool".into()),
-                    sources: vec![], confidence: 1.0, conflicts: vec![],
+                    sources: vec![],
+                    confidence: 1.0,
+                    conflicts: vec![],
                 },
                 CanonicalAbstractProp {
                     canonical_name: "label".into(),
                     abstract_type: AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
                     reactivity: AbstractReactivity::Static,
                     concrete_type: Some("String".into()),
-                    sources: vec![], confidence: 1.0, conflicts: vec![],
+                    sources: vec![],
+                    confidence: 1.0,
+                    conflicts: vec![],
                 },
                 CanonicalAbstractProp {
                     canonical_name: "variant".into(),
                     abstract_type: AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
                     reactivity: AbstractReactivity::Static,
                     concrete_type: Some("enum: Default, Destructive".into()),
-                    sources: vec![], confidence: 1.0, conflicts: vec![],
+                    sources: vec![],
+                    confidence: 1.0,
+                    conflicts: vec![],
                 },
             ],
             events: vec![CanonicalAbstractEvent {
@@ -244,11 +306,21 @@ mod tests {
             ucp_version: "4.0.0".into(),
             components: vec![comp],
             stats: PipelineStats {
-                files_scanned: 1, files_parsed: 1, components_found: 1,
-                conflicts_detected: 0, llm_enriched: false,
+                files_scanned: 1,
+                files_parsed: 1,
+                components_found: 1,
+                conflicts_detected: 0,
+                llm_enriched: false,
             },
         };
-        export_design_md(&output, None, "test-lib", "1.0.0", &tmp.path().to_string_lossy()).unwrap();
+        export_design_md(
+            &output,
+            None,
+            "test-lib",
+            "1.0.0",
+            &tmp.path().to_string_lossy(),
+        )
+        .unwrap();
         let content = std::fs::read_to_string(tmp.path().join("DESIGN.md")).unwrap();
         assert!(content.contains("test-lib"));
         assert!(content.contains("Button"));

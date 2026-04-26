@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UCP Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+  <div id="app" class="container mx-auto p-4 max-w-7xl">
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold">UCP Component Dashboard</h1>
+      <p class="text-gray-600 mt-2">Extracted on: <span id="generated-at"></span></p>
+    </header>
+
+    <!-- Search & filters -->
+    <div class="mb-6 flex flex-wrap gap-4">
+      <input type="text" id="search" placeholder="Search components..."
+             class="flex-1 min-w-[200px] px-4 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <select id="framework-filter" class="px-4 py-2 border rounded-lg shadow-sm">
+        <option value="">All Frameworks</option>
+      </select>
+    </div>
+
+    <!-- Component list -->
+    <div id="component-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8"></div>
+
+    <!-- Component detail (hidden by default) -->
+    <div id="detail-panel" class="hidden bg-white rounded-xl shadow-lg p-6 mb-8">
+      <button id="back-btn" class="text-blue-600 hover:underline mb-4">&larr; Back to list</button>
+      <h2 id="detail-name" class="text-2xl font-bold mb-4"></h2>
+
+      <!-- Tabs -->
+      <div class="flex gap-2 mb-4 border-b">
+        <button class="tab active px-4 py-2" data-tab="props">Props</button>
+        <button class="tab px-4 py-2" data-tab="events">Events</button>
+        <button class="tab px-4 py-2" data-tab="states">States</button>
+        <button class="tab px-4 py-2" data-tab="source">Source</button>
+      </div>
+
+      <div id="tab-props" class="tab-content"></div>
+      <div id="tab-events" class="tab-content hidden"></div>
+      <div id="tab-states" class="tab-content hidden"></div>
+      <div id="tab-source" class="tab-content hidden"></div>
+    </div>
+
+    <!-- Conflict summary -->
+    <section class="bg-white rounded-xl shadow-lg p-6">
+      <h2 class="text-2xl font-bold mb-4">Conflicts</h2>
+      <div id="conflict-list" class="space-y-2"></div>
+    </section>
+  </div>
+
+  <!-- Embed spec data -->
+  <script>
+    const UCP_DATA = {spec_json};
+  </script>
+  <script>
+    // ── Minimal dashboard logic ──────────────────────────────────────────
+    const data = UCP_DATA;
+    const components = data.components || [];
+
+    document.getElementById('generated-at').textContent =
+      new Date().toISOString().split('T')[0];
+
+    // Populate framework filter
+    const frameworks = [...new Set(components.map(c => {{
+      const parts = c.id.split(':');
+      return parts[0] || 'unknown';
+    }}))];
+    const filterSelect = document.getElementById('framework-filter');
+    frameworks.forEach(fw => {{
+      const opt = document.createElement('option');
+      opt.value = fw;
+      opt.textContent = fw;
+      filterSelect.appendChild(opt);
+    }});
+
+    // Render component list
+    function renderList(filterText = '', framework = '') {{
+      const container = document.getElementById('component-list');
+      container.innerHTML = '';
+      components
+        .filter(c => {{
+          const name = c.id.split(':').pop() || c.id;
+          const fw = c.id.split(':')[0];
+          return name.toLowerCase().includes(filterText.toLowerCase()) &&
+                 (!framework || fw === framework);
+        }})
+        .sort((a, b) => {{
+          const na = a.id.split(':').pop();
+          const nb = b.id.split(':').pop();
+          return na.localeCompare(nb);
+        }})
+        .forEach((comp, idx) => {{
+          const name = comp.id.split(':').pop() || comp.id;
+          const props = comp.props || [];
+          const events = comp.events || [];
+          const card = document.createElement('div');
+          card.className = 'bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition';
+          card.innerHTML = `
+            <h3 class="font-semibold text-lg">${{name}}</h3>
+            <p class="text-sm text-gray-500">${{props.length}} prop(s) · ${{events.length}} event(s)</p>
+            ${{(comp.provided_context) ? `<span class="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">provides ${{comp.provided_context}}</span>` : ''}}
+          `;
+          card.addEventListener('click', () => showDetail(comp));
+          container.appendChild(card);
+        }});
+    }}
+
+    // Show detail
+    function showDetail(comp) {{
+      document.getElementById('component-list').classList.add('hidden');
+      document.getElementById('detail-panel').classList.remove('hidden');
+      document.getElementById('detail-name').textContent = comp.id.split(':').pop();
+
+      // Props table
+      const propsDiv = document.getElementById('tab-props');
+      const props = comp.props || [];
+      propsDiv.innerHTML = props.length
+        ? `<table class="w-full text-sm"><thead><tr class="text-left text-gray-500"><th>Name</th><th>Abstract Type</th><th>Concrete</th><th>Required</th></tr></thead><tbody>
+           ${{props.map(p => `<tr class="border-t"><td class="py-2 font-mono">${{p.canonical_name}}</td><td>${{typeof p.abstract_type === 'object' ? Object.keys(p.abstract_type)[0] : p.abstract_type}}</td><td>${{p.concrete_type || '—'}}</td><td>${{p.reactivity !== 'Static' ? 'Yes' : 'No'}}</td></tr>`).join('')}}
+           </tbody></table>`
+        : '<p class="text-gray-400">No props.</p>';
+
+      // Events table
+      const eventsDiv = document.getElementById('tab-events');
+      const events = comp.events || [];
+      eventsDiv.innerHTML = events.length
+        ? events.map(e => `<div class="border-t py-2"><span class="font-mono">${{e.canonical_name}}</span></div>`).join('')
+        : '<p class="text-gray-400">No events.</p>';
+
+      // States
+      const statesDiv = document.getElementById('tab-states');
+      statesDiv.innerHTML = comp.extracted_state_machine
+        ? `<pre class="text-xs bg-gray-100 p-4 rounded">${{JSON.stringify(comp.extracted_state_machine, null, 2)}}</pre>`
+        : '<p class="text-gray-400">No state machine.</p>';
+
+      // Source
+      const sourceDiv = document.getElementById('tab-source');
+      const repo = comp.source_repos?.[0];
+      sourceDiv.innerHTML = repo
+        ? `<p class="text-sm"><span class="text-gray-500">Path:</span> ${{repo.file_path}}<br><span class="text-gray-500">Line:</span> ${{repo.line_start}}</p>`
+        : '<p class="text-gray-400">No source info.</p>';
+    }}
+
+    document.getElementById('back-btn').addEventListener('click', () => {{
+      document.getElementById('detail-panel').classList.add('hidden');
+      document.getElementById('component-list').classList.remove('hidden');
+    }});
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {{
+      tab.addEventListener('click', () => {{
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active', 'border-b-2', 'border-blue-500'));
+        tab.classList.add('active', 'border-b-2', 'border-blue-500');
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+        const target = 'tab-' + tab.dataset.tab;
+        document.getElementById(target).classList.remove('hidden');
+      }});
+    }});
+
+    // Filter & search
+    document.getElementById('search').addEventListener('input', e => {{
+      renderList(e.target.value, document.getElementById('framework-filter').value);
+    }});
+    document.getElementById('framework-filter').addEventListener('change', e => {{
+      renderList(document.getElementById('search').value, e.target.value);
+    }});
+
+    // Conflicts
+    const conflictContainer = document.getElementById('conflict-list');
+    const allConflicts = components.flatMap(c => (c.props || []).flatMap(p => (p.conflicts || []).map(conf => ({{ component: c.id.split(':').pop(), prop: p.canonical_name, ...conf }}))));
+    if (allConflicts.length === 0) {{
+      conflictContainer.innerHTML = '<p class="text-green-600">✅ No conflicts detected.</p>';
+    }} else {{
+      conflictContainer.innerHTML = allConflicts.map(c => `
+        <div class="border-l-4 border-red-500 pl-4 py-2">
+          <span class="font-semibold">${{c.component}}.${{c.prop}}</span>
+          <span class="text-sm text-gray-500"> — ${{c.present_in.join(', ')}} vs ${{c.absent_in.join(', ')}}</span>
+        </div>
+      `).join('');
+    }}
+
+    // Initial render
+    renderList();
+  </script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 use super::common::to_snake_case;
-use super::dioxus::generate_component_code;
+use super::traits::CodeGenerator;
+use crate::generate::dioxus::DioxusGenerator;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -90,7 +91,7 @@ pub fn generate_registry(
     for comp in &manifest.components {
         let raw_name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
         let snake_name = to_snake_case(raw_name);
-        let source_code = generate_component_code(comp);
+        let source_code = DioxusGenerator.generate_component_code(comp);
         let file_path = format!("src/{}.rs", snake_name);
         let deps = resolve_dependencies(comp, &manifest.components, namespace);
         let title = Some(humanize_name(raw_name));
@@ -159,7 +160,7 @@ pub fn generate_registry_base(
     for comp in &manifest.components {
         let raw_name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
         let snake_name = to_snake_case(raw_name);
-        let source_code = generate_component_code(comp);
+        let source_code = DioxusGenerator.generate_component_code(comp);
         let file_path = format!("src/{}.rs", snake_name);
         let deps = resolve_dependencies(comp, &manifest.components, namespace);
         all_deps.extend(deps);

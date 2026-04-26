@@ -24,6 +24,6 @@ pub struct SmdlTransition {
 }
 
 /// Parse an SMDL string into a typed `SmdlComponent`.
-pub fn parse_smdl(input: &str) -> crate::Result<SmdlComponent> {
-    parser::parse_smdl_internal(input)
+pub fn parse_smdl(input: &str, component_id: &str) -> crate::Result<SmdlComponent> {
+    parser::parse_smdl_internal(input, component_id)
 }

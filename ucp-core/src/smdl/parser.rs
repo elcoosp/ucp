@@ -8,7 +8,7 @@ use super::SmdlComponent;
 #[grammar = "src/smdl/smdl.pest"]
 pub struct SmdlParser;
 
-pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<SmdlComponent> {
+pub(crate) fn parse_smdl_internal(input: &str, component_id: &str) -> crate::Result<SmdlComponent> {
     let pairs = SmdlParser::parse(Rule::component, input.trim())
         .map_err(|e| crate::UcpError::Parsing(e.to_string()))?;
 
@@ -79,7 +79,7 @@ pub(crate) fn parse_smdl_internal(input: &str) -> crate::Result<SmdlComponent> {
     }
 
     Ok(SmdlComponent {
-        id: "ucp-smdl".to_string(),
+        id: component_id.to_string(),
         initial: initial_state,
         states,
     })

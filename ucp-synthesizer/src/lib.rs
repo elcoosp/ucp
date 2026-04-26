@@ -5,7 +5,12 @@ pub mod discovery;
 pub mod export;
 pub mod extract;
 pub mod generate;
+#[cfg(feature = "llm")]
 pub mod llm;
+#[cfg(not(feature = "llm"))]
+pub mod llm {
+    // stub
+}
 pub mod merge;
 pub mod pipeline;
 pub mod security;

@@ -12,6 +12,7 @@ const ALLOWED_LICENSES: &[&str] = &[
     "Unicode-DFS-2016",
 ];
 
+#[cfg(feature = "license-check")]
 pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
     let _expr = spdx::Expression::parse(license_str)
         .map_err(|e| UcpError::License(format!("Invalid SPDX: {}", e)))?;

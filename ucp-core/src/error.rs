@@ -22,9 +22,23 @@ pub enum UcpError {
 
     #[error("Parsing error: {0}")]
     Parsing(String),
+
+    /// Structured conflict with component and prop context.
+    #[error("Conflict in {component}.{prop}: present_in={present_in:?}, absent_in={absent_in:?}")]
+    ConflictDetailed {
+        component: String,
+        prop: String,
+        present_in: Vec<String>,
+        absent_in: Vec<String>,
+    },
+
+    /// LLM inference failure with optional model context.
+    #[error("LLM inference failed for model {model:?}: {message}")]
+    LlmInferenceDetailed {
+        message: String,
+        model: Option<String>,
+    },
 }
 
 /// A `Result` alias for UCP operations.
-/// Note: `#[must_use]` cannot be applied to type aliases in Rust.
-/// The inner `Result` already carries `#[must_use]` from the standard library.
 pub type Result<T> = std::result::Result<T, UcpError>;
