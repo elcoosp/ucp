@@ -39,7 +39,7 @@ fn dioxus_extracts_provided_context() {
 
 #[test]
 fn dioxus_extracts_consumed_context() {
-    let components = extract_rust_components(DIOXUS_CONSUMER).unwrap();
+    let _components = extract_rust_components(DIOXUS_CONSUMER).unwrap();
     // Note: this component has no Props struct, so it's only picked up by the generic visitor
     // The generic visitor doesn't do context detection yet, so this test is for future reference.
     // For now we verify the AST visitor would detect it if it had a Props struct.

@@ -23,7 +23,6 @@ struct RegistryFile {
     content: String,
 }
 
-/// Generate shadcn registry files from a package manifest.
 pub fn generate_registry(manifest: &PackageManifest, output_dir: &str) -> Result<()> {
     let dir = Path::new(output_dir);
     fs::create_dir_all(dir).map_err(ucp_core::UcpError::Io)?;
@@ -35,7 +34,6 @@ pub fn generate_registry(manifest: &PackageManifest, output_dir: &str) -> Result
         let snake_name = to_snake_case(raw_name);
         let source_code = generate_component_code(comp);
         let file_path = format!("src/{}.rs", snake_name);
-
         let deps = resolve_dependencies(comp, &manifest.components);
 
         let item = RegistryItem {
@@ -47,11 +45,13 @@ pub fn generate_registry(manifest: &PackageManifest, output_dir: &str) -> Result
                 content: source_code,
             }],
         };
-        items.push(item);
 
+        // Serialize BEFORE pushing to items (avoids borrow-after-move)
         let item_path = dir.join(format!("registry-item-{}.json", snake_name));
         let content = serde_json::to_string_pretty(&item).map_err(ucp_core::UcpError::Json)?;
         fs::write(&item_path, content).map_err(ucp_core::UcpError::Io)?;
+
+        items.push(item);
     }
 
     let registry_json = serde_json::to_string_pretty(&items).map_err(ucp_core::UcpError::Json)?;
@@ -97,8 +97,6 @@ fn find_component_reference(
     None
 }
 
-/// Simple word-boundary check: the component name appears in the type string
-/// followed by a non-alphanumeric character or end-of-string.
 fn contains_word(haystack: &str, needle: &str) -> bool {
     if let Some(pos) = haystack.find(needle) {
         let after = &haystack[pos + needle.len()..];
@@ -122,6 +120,6 @@ mod tests {
         assert!(contains_word("Option<Button>", "Button"));
         assert!(contains_word("Button", "Button"));
         assert!(contains_word("Vec<Button>", "Button"));
-        assert!(!contains_word("ButtonVariant", "Button")); // false positive prevention
+        assert!(!contains_word("ButtonVariant", "Button"));
     }
 }

@@ -1,4 +1,4 @@
-use ucp_core::cam::{AbstractPropType, AbstractReactivity};
+use ucp_core::cam::AbstractPropType;
 
 /// Convert PascalCase or kebab-case to snake_case
 pub fn to_snake_case(s: &str) -> String {
