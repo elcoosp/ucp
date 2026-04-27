@@ -113,5 +113,3 @@ doc-open: doc
     else \
         echo "Open docs/book/index.html in your browser."; \
     fi
-
-# Run only documentation tests
