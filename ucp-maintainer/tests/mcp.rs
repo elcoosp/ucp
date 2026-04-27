@@ -202,3 +202,61 @@ fn error_response_with_null_id() {
     let resp = parse_response(&error_response(Value::Null, -32700, "parse error"));
     assert_eq!(resp["id"], Value::Null);
 }
+
+#[test]
+fn mcp_check_consistency_missing_arg() {
+    let req = json!({"jsonrpc":"2.0","method":"tools/call","params":{"name":"check_consistency"},"id":1});
+    let r = parse_response(&handle_request(&req.to_string(), &spec_with_button()));
+    assert_eq!(r["error"]["code"], -32602);
+}
+
+#[test]
+fn mcp_check_consistency_not_found() {
+    let req = json!({"jsonrpc":"2.0","method":"tools/call","params":{"name":"check_consistency","arguments":{"component":"Nope"}},"id":1});
+    let r = parse_response(&handle_request(&req.to_string(), &spec_with_button()));
+    assert_eq!(r["result"]["valid"], false);
+    assert!(r["result"]["error"].as_str().unwrap().contains("not found"));
+}
+
+#[test]
+fn mcp_check_consistency_valid() {
+    let req = json!({"jsonrpc":"2.0","method":"tools/call","params":{"name":"check_consistency","arguments":{"component":"Button"}},"id":1});
+    let r = parse_response(&handle_request(&req.to_string(), &spec_with_button()));
+    assert_eq!(r["result"]["valid"], true);
+    assert_eq!(r["result"]["mismatches"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn mcp_check_consistency_unknown_prop() {
+    let req = json!({"jsonrpc":"2.0","method":"tools/call","params":{"name":"check_consistency","arguments":{"component":"Button","props":{"bogus":"x"}}},"id":1});
+    let r = parse_response(&handle_request(&req.to_string(), &spec_with_button()));
+    assert_eq!(r["result"]["valid"], false);
+    assert!(r["result"]["mismatches"].as_array().unwrap().iter().any(|m| m["issue"] == "unknown_prop"));
+}
+
+#[test]
+fn mcp_get_tokens_unavailable() {
+    let req = json!({"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_tokens"},"id":1});
+    let r = parse_response(&handle_request(&req.to_string(), &empty_spec()));
+    let t: Value = serde_json::from_str(r["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(t["available"], false);
+}
+
+#[test]
+fn mcp_get_tokens_with_provenance() {
+    let mut s = empty_spec();
+    s.provenance = Some(json!({"src":"test"}));
+    let req = json!({"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_tokens"},"id":1});
+    let r = parse_response(&handle_request(&req.to_string(), &s));
+    let t: Value = serde_json::from_str(r["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(t["available"], true);
+}
+
+#[test]
+fn mcp_tools_list_has_new_tools() {
+    let req = json!({"jsonrpc":"2.0","method":"tools/list","id":1});
+    let r = parse_response(&handle_request(&req.to_string(), &empty_spec()));
+    let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"check_consistency"));
+    assert!(names.contains(&"get_tokens"));
+}

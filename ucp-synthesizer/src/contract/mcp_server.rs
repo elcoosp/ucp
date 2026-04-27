@@ -81,7 +81,9 @@ fn tools_list_response(id: serde_json::Value) -> String {
         {"name": "generate_llms_txt", "description": "Generate LLMs.txt documentation"},
         {"name": "export_a2ui_catalog", "description": "Export complete A2UI catalog with library metadata", "inputSchema": {"type": "object", "properties": {"library": {"type": "string"}, "version": {"type": "string"}}}},
         {"name": "export_design_md_full", "description": "Export DESIGN.md with token integration", "inputSchema": {"type": "object", "properties": {"library": {"type": "string"}, "version": {"type": "string"}}}},
-        {"name": "dashboard", "description": "Generate interactive component dashboard HTML"}
+        {"name": "dashboard", "description": "Generate interactive component dashboard HTML"},
+        {"name": "check_consistency", "description": "Check if component usage matches the spec", "inputSchema": {"type": "object", "properties": {"component": {"type": "string"}, "props": {"type": "object"}}}},
+        {"name": "get_tokens", "description": "Check availability of design tokens in the spec"},
     ]);
     let resp = McpResponse {
         jsonrpc: "2.0".into(),
@@ -373,6 +375,95 @@ fn tools_call_response(
             };
             serde_json::to_string(&resp).unwrap_or_default()
         }
+        "check_consistency" => {
+            let args = params
+                .as_ref()
+                .and_then(|p| p.get("arguments"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+
+            let component_name = args.get("component").and_then(|n| n.as_str()).unwrap_or("");
+            let usage_props = args.get("props").and_then(|p| p.as_object()).cloned();
+
+            if component_name.is_empty() {
+                return error_response(id, -32602, "Missing required argument: component");
+            }
+
+            let comp = spec
+                .components
+                .iter()
+                .find(|c| c.id.ends_with(component_name));
+
+            let result = match comp {
+                None => serde_json::json!({
+                    "valid": false,
+                    "error": format!("Component \"{}\" not found in spec", component_name),
+                    "mismatches": []
+                }),
+                Some(c) => {
+                    let mut mismatches = Vec::new();
+
+                    if let Some(used) = &usage_props {
+                        for (key, _) in used {
+                            let known = c.props.iter().any(|p| p.canonical_name == *key);
+                            if !known {
+                                mismatches.push(serde_json::json!({
+                                    "prop": key,
+                                    "issue": "unknown_prop",
+                                    "message": format!("Property \"{}\" is not defined in spec", key)
+                                }));
+                            }
+                        }
+                        for p in &c.props {
+                            let is_static =
+                                matches!(p.reactivity, ucp_core::cam::AbstractReactivity::Static);
+                            if is_static && !used.contains_key(&p.canonical_name) {
+                                mismatches.push(serde_json::json!({
+                                    "prop": &p.canonical_name,
+                                    "issue": "missing_required",
+                                    "message": format!("Required prop \"{}\" not provided", p.canonical_name)
+                                }));
+                            }
+                        }
+                    }
+
+                    serde_json::json!({
+                        "valid": mismatches.is_empty(),
+                        "component": component_name,
+                        "mismatches": mismatches
+                    })
+                }
+            };
+
+            let resp = McpResponse {
+                jsonrpc: "2.0".into(),
+                result: Some(result),
+                error: None,
+                id,
+            };
+            serde_json::to_string(&resp).unwrap_or_default()
+        }
+        "get_tokens" => {
+            let has_provenance = spec.provenance.is_some();
+            let has_curation = spec.curation_log.is_some();
+
+            let result = serde_json::json!({
+                "available": has_provenance || has_curation,
+                "note": "Design tokens are not yet stored directly in SynthesisOutput. Use ucp export --target dtcg to extract tokens from source files.",
+                "provenance_available": has_provenance,
+                "curation_log_available": has_curation
+            });
+
+            let resp = McpResponse {
+                jsonrpc: "2.0".into(),
+                result: Some(
+                    serde_json::json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&result).unwrap_or_default()}]}),
+                ),
+                error: None,
+                id,
+            };
+            serde_json::to_string(&resp).unwrap_or_default()
+        }
         _ => error_response(id, -32601, "Tool not found"),
     }
 }
@@ -417,7 +508,9 @@ pub fn generate_server_json(name: &str, description: &str, output_dir: &str) -> 
             {"name": "export_w3c", "description": "Export W3C UI Spec JSON"},
             {"name": "export_dtcg", "description": "Export DTCG design tokens JSON"},
             {"name": "generate_llms_txt", "description": "Generate LLMs.txt documentation"},
-            {"name": "dashboard", "description": "Generate interactive component dashboard HTML"}
+            {"name": "dashboard", "description": "Generate interactive component dashboard HTML"},
+        {"name": "check_consistency", "description": "Check if component usage matches the spec", "inputSchema": {"type": "object", "properties": {"component": {"type": "string"}, "props": {"type": "object"}}}},
+        {"name": "get_tokens", "description": "Check availability of design tokens in the spec"},
         ],
         "transport": "stdio",
         "repository": "https://github.com/elcoosp/ucp"

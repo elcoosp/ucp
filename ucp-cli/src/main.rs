@@ -932,8 +932,7 @@ async fn cmd_registry_serve(
         .context("Failed to parse spec JSON")?;
 
     if _token.is_some() {
-        anyhow::bail!("Authentication not yet implemented");
     }
 
-    ucp_maintainer::registry_server::run_registry_server(spec, port).await
+    ucp_maintainer::registry_server::run_registry_server_with_token(spec, port, _token).await
 }
