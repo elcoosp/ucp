@@ -42,7 +42,7 @@ pub async fn run_mcp_server(spec: &SynthesisOutput) -> Result<()> {
     Ok(())
 }
 
-fn error_response(id: serde_json::Value, code: i32, message: &str) -> String {
+pub fn error_response(id: serde_json::Value, code: i32, message: &str) -> String {
     let resp = McpResponse {
         jsonrpc: "2.0".into(),
         result: None,
@@ -57,7 +57,7 @@ fn error_response(id: serde_json::Value, code: i32, message: &str) -> String {
     })
 }
 
-fn handle_request(raw: &str, spec: &SynthesisOutput) -> String {
+pub fn handle_request(raw: &str, spec: &SynthesisOutput) -> String {
     let req: McpRequest = match serde_json::from_str(raw) {
         Ok(r) => r,
         Err(e) => return error_response(serde_json::Value::Null, -32700, &e.to_string()),
