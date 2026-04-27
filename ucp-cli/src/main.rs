@@ -329,6 +329,16 @@ async fn main() -> anyhow::Result<()> {
         } => cmd_merge_tokens(&input, &output, &strategy, force)?,
         Commands::VerifySpec { spec, source_dir } => cmd_verify_spec(&spec, &source_dir).await?,
         Commands::RegistryStore { db, action } => cmd_registry_store(db, action)?,
+        Commands::Watch { source_dir, output, base_spec, library, version, debounce_ms } => {
+            ucp_maintainer::watch::run_watch(
+                &source_dir,
+                base_spec.as_deref(),
+                &output,
+                &library,
+                &version,
+                debounce_ms,
+            ).await?;
+        },
         Commands::ExportAll {
             spec,
             output,
