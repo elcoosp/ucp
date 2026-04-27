@@ -1,13 +1,13 @@
 use anyhow::Context;
 use notify::{Event, EventKind, RecursiveMode, Watcher, Config};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc::channel;
 use ucp_synthesizer::pipeline::{PipelineOptions, SynthesisOutput};
 use ucp_synthesizer::merge::MergeOptions;
 
 /// Run a continuous watch loop that re‑extracts, re‑merges (if a base spec is given),
 /// and re‑exports whenever source files change.
-pub fn run_watch(
+pub async fn run_watch(
     source_dir: &str,
     base_spec_path: Option<&Path>,
     output_dir: &Path,
@@ -56,7 +56,7 @@ pub fn run_watch(
 
         // Run the extraction pipeline
         let opts = PipelineOptions::default();
-        match ucp_synthesizer::pipeline::run_pipeline_with_options(source_dir, &opts) {
+        match ucp_synthesizer::pipeline::run_pipeline_with_options(source_dir, &opts).await {
             Ok(fresh_spec) => {
                 // If a base spec is provided, do an incremental merge
                 let final_spec = if let Some(base_path) = base_spec_path {
