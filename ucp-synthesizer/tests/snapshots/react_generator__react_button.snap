@@ -1,0 +1,18 @@
+---
+source: ucp-synthesizer/tests/react_generator.rs
+expression: content
+---
+import React from 'react';
+
+interface ButtonProps {
+  disabled?: boolean;
+  label?: string;
+}
+
+export function Button({ disabled = false, label }: ButtonProps) {
+  return (
+    <div >
+      {/* TODO: Implement Button */}
+    </div>
+  );
+}

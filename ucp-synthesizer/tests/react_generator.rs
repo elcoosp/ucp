@@ -123,6 +123,6 @@ fn snapshot_react_button() {
         global_styles: None, generated_by: "test".into(), generated_at: "now".into(),
     };
     ucp_synthesizer::generate::react::generate_react(&manifest, &tmp.path().to_string_lossy()).unwrap();
-    let content = std::fs::read_to_string(tmp.path().join("src/button.rs")).unwrap();
+    let content = std::fs::read_to_string(tmp.path().join("src/button.tsx")).unwrap();
     assert_snapshot!("react_button", content);
 }
