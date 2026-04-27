@@ -89,3 +89,31 @@ curate-demo *ARGS:
 # Run only documentation tests
 doc-test:
     cargo test --doc
+
+# =============================================================================
+# Documentation (mdBook)
+# =============================================================================
+
+# Build the mdBook documentation
+doc:
+    @if command -v mdbook >/dev/null 2>&1; then \
+        mdbook build docs/; \
+        echo "✅ Documentation built in docs/book/"; \
+    else \
+        echo "⚠️  mdbook not installed. Install: cargo install mdbook"; \
+        exit 1; \
+    fi
+
+# Build and open docs in browser
+doc-open: doc
+    @if command -v open >/dev/null 2>&1; then \
+        open docs/book/index.html; \
+    elif command -v xdg-open >/dev/null 2>&1; then \
+        xdg-open docs/book/index.html; \
+    else \
+        echo "Open docs/book/index.html in your browser."; \
+    fi
+
+# Run only documentation tests
+doc-test:
+    cargo test --doc
