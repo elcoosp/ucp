@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn drift_report_no_differences_on_identical_specs() {
         // This tests the comparison logic without needing IO
-        let spec = SynthesisOutput {
+        let _spec = SynthesisOutput {
             components: vec![test_component()],
             ..empty_spec()
         };

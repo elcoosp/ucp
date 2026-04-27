@@ -48,7 +48,7 @@ pub fn merge_token_files(
     let mut spacing: HashMap<String, Vec<(usize, &str)>> = HashMap::new();
     let mut typography: HashMap<String, Vec<(usize, &str)>> = HashMap::new();
 
-    for (idx, (path, tokens)) in files.iter().enumerate() {
+    for (idx, (_path, tokens)) in files.iter().enumerate() {
         for (key, value) in &tokens.colors {
             colors.entry(key.clone()).or_default().push((idx, value));
         }
