@@ -10,7 +10,6 @@ build-dir = "book"
 
 [output.html]
 mathjax-support = false
-copy-fonts = true
 
 [output.html.search]
 enable = true
