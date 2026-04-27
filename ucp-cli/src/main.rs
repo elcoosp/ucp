@@ -236,6 +236,15 @@ enum RegistryAction {
         #[arg(long, short = 't')]
         tokens: Option<PathBuf>,
     },
+    /// v0.13: Start a self-hosted registry HTTP server
+    Serve {
+        #[arg(long)]
+        spec: PathBuf,
+        #[arg(long, default_value = "3000")]
+        port: u16,
+        #[arg(long)]
+        token: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -311,6 +320,10 @@ async fn main() -> anyhow::Result<()> {
                 homepage.as_deref(),
                 base,
             ),
+
+            RegistryAction::Serve { spec, port, token } => {
+                cmd_registry_serve(&spec, port, token).await
+            }
         }?,
         Commands::Merge {
             input,
@@ -906,4 +919,21 @@ fn cmd_export_all(
     println!("   📁 registry/registry.json");
 
     Ok(())
+}
+
+async fn cmd_registry_serve(
+    spec_path: &Path,
+    port: u16,
+    _token: Option<String>,
+) -> anyhow::Result<()> {
+    let spec_str = std::fs::read_to_string(spec_path)
+        .with_context(|| format!("Failed to read spec file: {}", spec_path.display()))?;
+    let spec: ucp_synthesizer::pipeline::SynthesisOutput = serde_json::from_str(&spec_str)
+        .context("Failed to parse spec JSON")?;
+
+    if _token.is_some() {
+        anyhow::bail!("Authentication not yet implemented");
+    }
+
+    ucp_maintainer::registry_server::run_registry_server(spec, port).await
 }

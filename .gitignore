@@ -31,3 +31,5 @@ node_modules/
 wr.sh
 .patch-ts
 docs/book/*
+lcov.info
+coverage

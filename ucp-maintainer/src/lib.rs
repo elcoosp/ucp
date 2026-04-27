@@ -20,3 +20,4 @@ pub mod tokens;
 pub mod verify;
 pub mod registry;
 pub mod watch;
+pub mod registry_server;
