@@ -1,0 +1,77 @@
+---
+source: ucp-core/tests/cam_serialization.rs
+assertion_line: 62
+expression: make_full_component()
+---
+{
+  "id": "rust:button.rs:Button",
+  "semantic_fingerprint": {
+    "purpose_hash": "abc",
+    "normalized_prop_names": [
+      "disabled",
+      "label",
+      "variant"
+    ]
+  },
+  "props": [
+    {
+      "canonical_name": "disabled",
+      "abstract_type": "controlFlag",
+      "reactivity": "static",
+      "concrete_type": "bool",
+      "sources": [],
+      "confidence": 1.0,
+      "conflicts": []
+    },
+    {
+      "canonical_name": "label",
+      "abstract_type": {
+        "staticValue": "any"
+      },
+      "reactivity": "static",
+      "concrete_type": "String",
+      "sources": [],
+      "confidence": 1.0,
+      "conflicts": []
+    },
+    {
+      "canonical_name": "variant",
+      "abstract_type": {
+        "staticValue": "any"
+      },
+      "reactivity": "static",
+      "concrete_type": "enum: Default, Destructive",
+      "sources": [],
+      "confidence": 1.0,
+      "conflicts": []
+    }
+  ],
+  "events": [
+    {
+      "canonical_name": "click",
+      "abstract_payload": {
+        "asyncEventHandler": []
+      }
+    }
+  ],
+  "extracted_state_machine": {
+    "id": "sm",
+    "initial": "idle",
+    "states": {
+      "idle": {}
+    }
+  },
+  "extracted_parts": [
+    {
+      "name": "trigger",
+      "selectable": true
+    }
+  ],
+  "source_repos": [
+    {
+      "repo_url": "local",
+      "file_path": "button.rs",
+      "line_start": 1
+    }
+  ]
+}

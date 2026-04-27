@@ -1,0 +1,16 @@
+---
+source: ucp-synthesizer/tests/export_snapshots.rs
+assertion_line: 38
+expression: "&serde_json::from_str::<serde_json::Value>(&content).unwrap()"
+---
+{
+  "events": [
+    {
+      "component": "Button",
+      "event": "click",
+      "eventType": "component.click",
+      "payload": "AsyncEventHandler([])"
+    }
+  ],
+  "protocol": "ag-ui/v1"
+}

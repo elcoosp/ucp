@@ -1,0 +1,20 @@
+---
+source: ucp-synthesizer/tests/leptos_generator.rs
+assertion_line: 163
+expression: content
+---
+use leptos::*;
+
+#[derive(Clone, PartialEq, Props)]
+pub struct ButtonProps {
+    #[prop(default)] disabled: bool,
+    #[prop(default)] label: String,
+}
+
+#[component]
+pub fn Button(
+    #[prop(default)] disabled: bool,
+    #[prop(default)] label: String
+) -> impl IntoView {
+    view! { <div></div> }
+}

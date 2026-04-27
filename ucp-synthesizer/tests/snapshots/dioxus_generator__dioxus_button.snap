@@ -1,0 +1,20 @@
+---
+source: ucp-synthesizer/tests/dioxus_generator.rs
+assertion_line: 120
+expression: content
+---
+use dioxus::prelude::*;
+
+#[derive(Clone, PartialEq, Props)]
+pub struct ButtonProps {
+    #[props(default)] disabled: bool,
+    #[props(default)] label: String,
+}
+
+#[component]
+pub fn Button(props: ButtonProps) -> Element {
+    rsx! {
+        // TODO: Implement Button component
+        div { }
+    }
+}

@@ -1,0 +1,13 @@
+---
+source: ucp-core/tests/cam_serialization.rs
+assertion_line: 90
+expression: prop
+---
+{
+  "canonical_name": "attributes",
+  "abstract_type": "spreadAttributes",
+  "reactivity": "static",
+  "sources": [],
+  "confidence": 1.0,
+  "conflicts": []
+}

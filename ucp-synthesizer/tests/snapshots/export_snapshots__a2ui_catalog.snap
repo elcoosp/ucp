@@ -1,0 +1,32 @@
+---
+source: ucp-synthesizer/tests/export_snapshots.rs
+assertion_line: 30
+expression: "&serde_json::from_str::<serde_json::Value>(&content).unwrap()"
+---
+{
+  "components": [
+    {
+      "description": "Button component",
+      "events": [
+        {
+          "name": "click",
+          "payload": "AsyncEventHandler([])"
+        }
+      ],
+      "id": "rust:button.rs:Button",
+      "name": "Button",
+      "props": [
+        {
+          "default": "default",
+          "description": "bool",
+          "name": "disabled",
+          "required": false,
+          "type": "bool"
+        }
+      ]
+    }
+  ],
+  "library": "test-lib",
+  "schema": "https://a2ui.dev/schema/v0.9",
+  "version": "1.0.0"
+}

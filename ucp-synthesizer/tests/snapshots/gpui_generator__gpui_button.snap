@@ -1,0 +1,38 @@
+---
+source: ucp-synthesizer/tests/gpui_generator.rs
+assertion_line: 124
+expression: content
+---
+use gpui::*;
+
+#[derive(IntoElement)]
+pub struct Button {
+    disabled: bool,
+    label: String,
+}
+
+impl Button {
+    pub fn new() -> Self {
+        Self {
+            // TODO: Initialize fields with defaults
+        }
+    }
+
+    pub fn disabled(mut self, value: bool) -> Self {
+        self.disabled = value;
+        self
+    }
+
+    pub fn label(mut self, value: String) -> Self {
+        self.label = value;
+        self
+    }
+}
+
+impl Render for Button {
+    fn render(&self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let mut this = div();
+
+        this
+    }
+}

@@ -1,0 +1,14 @@
+---
+source: ucp-synthesizer/tests/export_snapshots.rs
+assertion_line: 54
+expression: content
+---
+# UCP Component Library
+
+## Button
+
+- **Description:** Button component
+- **Props:**
+  - `disabled` (bool, optional)
+- **Events:**
+  - `click`

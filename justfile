@@ -64,3 +64,11 @@ install-tools:
     cargo install cargo-llvm-cov
     cargo install cargo-fuzz
     cargo install cargo-mutants
+
+# ---------------------------------------------------------------------------
+# Coverage reporting
+# ---------------------------------------------------------------------------
+coverage:
+    cargo llvm-cov nextest --lcov --output-path lcov.info
+    cargo llvm-cov report --html --output-dir coverage
+    echo "Coverage report in coverage/index.html"

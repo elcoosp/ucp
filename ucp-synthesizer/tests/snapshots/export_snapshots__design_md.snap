@@ -1,0 +1,31 @@
+---
+source: ucp-synthesizer/tests/export_snapshots.rs
+assertion_line: 46
+expression: content
+---
+---
+title: test-lib
+description: Design system for test-lib
+---
+
+# test-lib v1.0.0
+
+This is an AI‑native design specification for the `{}` component library. It describes the design tokens, component props, variants, and state machines in a format optimised for AI coding agents.
+
+## Components
+
+### Button
+
+_Button component_
+
+#### Props
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `disabled` | `bool` | No | default | |
+
+#### Events
+
+- **`click`**: `AsyncEventHandler([])`
+
+---

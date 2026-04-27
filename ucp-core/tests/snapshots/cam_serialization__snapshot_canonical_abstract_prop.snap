@@ -1,0 +1,14 @@
+---
+source: ucp-core/tests/cam_serialization.rs
+assertion_line: 76
+expression: prop
+---
+{
+  "canonical_name": "disabled",
+  "abstract_type": "controlFlag",
+  "reactivity": "static",
+  "concrete_type": "bool",
+  "sources": [],
+  "confidence": 1.0,
+  "conflicts": []
+}
