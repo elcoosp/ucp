@@ -1,0 +1,19 @@
+[book]
+title = "UCP Documentation"
+authors = ["UCP Project"]
+description = "Universal Component Protocol – user and maintainer documentation"
+language = "en"
+
+[build]
+build-dir = "book"
+src = "."                    # <-- use docs/ as the source directory
+
+[output.html]
+mathjax-support = false
+copy-fonts = true
+
+[output.html.search]
+enable = true
+
+[rust]
+edition = "2021"
