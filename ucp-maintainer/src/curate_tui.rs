@@ -1,3 +1,5 @@
+//! Ratatui‑based interactive terminal UI for curation.
+
 use crate::curate::{curate_spec, Resolution};
 use ucp_core::Result;
 use ucp_core::cam::Conflict;

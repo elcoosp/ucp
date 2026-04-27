@@ -1,3 +1,5 @@
+//! Core curation logic: apply conflict resolutions to a merged spec.
+
 use ucp_core::Result;
 use ucp_synthesizer::pipeline::SynthesisOutput;
 use ucp_core::cam::ResolutionStrategy;

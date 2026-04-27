@@ -1,3 +1,11 @@
+//! # UCP CLI
+//!
+//! The command‑line interface for the Universal Component Protocol.
+//!
+//! Provides subcommands for bootstrapping, validation, merging, curation,
+//! diff, token merging, drift detection, registry management, exporting,
+//! and watch mode.
+
 use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
 use std::os::unix::process::CommandExt;

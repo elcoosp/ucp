@@ -1,3 +1,5 @@
+//! SQLite‑backed local spec registry (store, list, show, delete).
+
 use serde_json;
 use rusqlite::{params, Connection};
 use ucp_core::Result;

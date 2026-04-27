@@ -1,3 +1,5 @@
+//! Drift detection: re‑extract from source and compare against a canonical spec.
+
 use ucp_core::Result;
 use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineOptions};
 

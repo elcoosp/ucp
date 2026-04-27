@@ -1,3 +1,5 @@
+//! File‑system watcher that continuously rebuilds specs on source changes.
+
 use anyhow::Context;
 use notify::{Event, EventKind, RecursiveMode, Watcher, Config};
 use std::path::Path;

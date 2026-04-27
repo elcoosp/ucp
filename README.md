@@ -1,67 +1,54 @@
-# UCP v4.0 — AI Unification Engine
+# UCP — Universal Component Protocol
 
-Universal Component Protocol synthesizer that extracts UI components from
-React, Leptos, and GPUI codebases, unifies them into a canonical abstract
-model (CAM), and detects cross-framework conflicts.
+[![Rust](https://img.shields.io/badge/rust-1.80%2B-blue)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.11.0-orange)](https://crates.io/crates/ucp-cli)
 
-## Features
+**AI‑native component specification, extraction, and governance CLI.**
 
-- **AST-based extraction** from Rust (Leptos/GPUI `#[component]`) and TSX/JSX/TS
-- **Canonical Abstract Model** with typed props, events, state machines
-- **Conflict detection** across frameworks (type mismatches, missing props)
-- **LLM enrichment** via Ollama for semantic descriptions and SMDL state machines
-- **Merge & curation** workflow with HTML review UI for conflict resolution
-- **React.FC and class component** support
-
-## Install
-
-```bash
-cargo install --path .
-```
+UCP scans frontend codebases, extracts UI component definitions into a
+framework‑agnostic **Canonical Abstract Model (CAM)**,
+merges specs from multiple sources, detects conflicts, and exports
+to multiple formats (A2UI, AG‑UI, W3C, DESIGN.md, LLMs.txt, shadcn registry).
 
 ## Quick Start
 
-```bash
-# Extract components from a source directory
-ucp bootstrap --source-dir ./src
+``` bash
+# Install
+brew install elcoosp/tap/ucp
+# or: cargo install ucp-cli
 
-# With LLM enrichment
-ucp bootstrap --source-dir ./src --ollama-url http://localhost:11434 --llm-model llama3
+# Bootstrap from a source directory
+ucp bootstrap --source-dir ./my-dioxus-app/src
 
-# Watch for changes (requires watchexec)
-ucp bootstrap --source-dir ./src --watch
+# Merge specs from two codebases
+ucp merge --input dioxus-spec.json --input react-spec.json -o merged.json
+
+# Curate conflicts interactively
+ucp curate --merged merged.json --output curated.json
+
+# Export to all formats
+ucp export-all --spec curated.json --output ./dist
 ```
 
-## Commands
+## Documentation
 
-```bash
-# Validate a spec file
-ucp validate ucp-spec.json
+- [User Guide](docs/user/quickstart.md)
+- [CLI Command Reference](docs/user/commands/index.md)
+- [Conceptual Overview](docs/user/concepts/cam.md)
+- [Contributing](CONTRIBUTING.md)
+- [Maintainer Guide](MAINTAINERS.md)
+- [Architecture](docs/maintainer/architecture.md)
 
-# Merge multiple specs
-ucp merge --input a.json --input b.json -o merged.json
+## Workspace Crates
 
-# List components (text)
-ucp components ucp-spec.json
-
-# JSON output (composable in pipelines)
-ucp components --format json ucp-spec.json
-
-# Substring filter
-ucp components --filter "Button" ucp-spec.json
-
-# Regex filter
-ucp components --filter "^Button$|^Input$" ucp-spec.json
-```
-
-## Architecture
-
-```
-ucp-core/          # Data types, SMDL parser, error types
-ucp-synthesizer/   # Extraction, unification, pipeline, merge, curation
-ucp-cli/           # CLI binary (clap)
-```
+| Crate | Purpose |
+|-------|---------|
+| `ucp-core` | Canonical Abstract Model (CAM) types, SMDL parser, error types |
+| `ucp-synthesizer` | Extraction, unification, merging, LLM enrichment, code generation, exports |
+| `ucp-maintainer` | Interactive curation, diff, token merge, drift detection, registry, watch mode |
+| `ucp-cli` | CLI binary with all subcommands |
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

@@ -1,3 +1,5 @@
+//! Merge multiple DTCG design‑token files with conflict detection.
+
 use std::collections::HashMap;
 use ucp_core::Result;
 use ucp_synthesizer::extract::tokens::DtcgTokens;

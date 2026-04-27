@@ -1,3 +1,5 @@
+//! Structural diff between two `SynthesisOutput` specs.
+
 use ucp_core::Result;
 use ucp_synthesizer::pipeline::SynthesisOutput;
 use serde::Serialize;
