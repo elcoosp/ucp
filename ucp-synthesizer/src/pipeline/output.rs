@@ -22,6 +22,7 @@ pub const ANY_PENALTY_PER_PROP: f32 = 0.08;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[must_use = "discarding synthesis output loses all extracted component data"]
+/// Top‑level output of the UCP synthesis pipeline.
 pub struct SynthesisOutput {
     pub ucp_version: String,
     pub components: Vec<CanonicalAbstractComponent>,
@@ -42,6 +43,7 @@ pub struct PipelineStats {
 }
 
 #[derive(Debug, Clone)]
+/// Configuration for the extraction pipeline.
 pub struct PipelineOptions {
     pub ollama_url: Option<String>,
     pub llm_model: String,

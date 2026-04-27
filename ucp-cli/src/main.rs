@@ -53,6 +53,7 @@ enum ImportTarget {
 
 #[derive(Parser)]
 #[command(name = "ucp", about = "UCP v4.0 AI Unification Engine", version)]
+/// UCP CLI argument parser.
 struct Cli {
     #[command(subcommand)]
     command: Commands,

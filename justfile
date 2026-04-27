@@ -85,3 +85,7 @@ test-e2e-maintainer:
 # Run the interactive curation TUI on two sample specs
 curate-demo *ARGS:
     cargo run --release -- curate {{ ARGS }}
+
+# Run only documentation tests
+doc-test:
+    cargo test --doc

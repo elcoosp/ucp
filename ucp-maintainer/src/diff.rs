@@ -26,6 +26,29 @@ pub struct PropChange {
     pub new_value: Option<String>,
 }
 
+/// Compare two specs structurally and return a diff report.
+///
+/// # Example
+/// ```rust
+/// use ucp_maintainer::diff::diff_specs;
+/// use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
+/// let a = SynthesisOutput {
+///     ucp_version: "4.0.0".into(),
+///     components: vec![],
+///     provenance: None,
+///     curation_log: None,
+///     stats: PipelineStats {
+///         files_scanned: 0,
+///         files_parsed: 0,
+///         components_found: 0,
+///         conflicts_detected: 0,
+///         llm_enriched: false,
+///     },
+/// };
+/// let b = a.clone();
+/// let report = diff_specs(&a, &b).unwrap();
+/// assert!(report.added_components.is_empty());
+/// ```
 pub fn diff_specs(spec_a: &SynthesisOutput, spec_b: &SynthesisOutput) -> Result<DiffReport> {
     use std::collections::HashMap;
     let comps_a: HashMap<&str, _> = spec_a.components.iter().map(|c| (c.id.as_str(), c)).collect();
@@ -64,6 +87,7 @@ pub fn diff_specs(spec_a: &SynthesisOutput, spec_b: &SynthesisOutput) -> Result<
     Ok(DiffReport { added_components, removed_components, changed_components })
 }
 
+/// Pretty‑print a diff report as human‑readable text.
 pub fn diff_specs_text(spec_a: &SynthesisOutput, spec_b: &SynthesisOutput) -> Result<String> {
     let report = diff_specs(spec_a, spec_b)?;
     let mut out = String::new();

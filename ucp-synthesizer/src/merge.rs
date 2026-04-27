@@ -4,6 +4,7 @@ use ucp_core::Result;
 use crate::pipeline::{PipelineStats, SynthesisOutput};
 
 #[derive(Debug, Clone)]
+/// Options for controlling merge behavior.
 pub struct MergeOptions {
     pub weights: Option<HashMap<String, f32>>,
     pub incremental_base: Option<SynthesisOutput>,
@@ -15,6 +16,10 @@ impl Default for MergeOptions {
     }
 }
 
+/// Merge multiple `SynthesisOutput` specs into one.
+///
+/// Supports incremental merge (via `MergeOptions::incremental_base`)
+/// and weighted conflict resolution (via `MergeOptions::weights`).
 pub fn merge_specs(specs: &[SynthesisOutput], options: MergeOptions) -> Result<SynthesisOutput> {
     let (base_components, base_stats) = if let Some(base) = options.incremental_base {
         (base.components, base.stats)

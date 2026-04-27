@@ -9,6 +9,8 @@ use ucp_synthesizer::merge::MergeOptions;
 
 /// Run a continuous watch loop that re‑extracts, re‑merges (if a base spec is given),
 /// and re‑exports whenever source files change.
+/// Run a continuous watch loop that re‑extracts, re‑merges, and re‑exports
+/// whenever source files change.
 pub async fn run_watch(
     source_dir: &str,
     base_spec_path: Option<&Path>,
