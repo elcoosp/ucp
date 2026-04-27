@@ -115,5 +115,3 @@ doc-open: doc
     fi
 
 # Run only documentation tests
-doc-test:
-    cargo test --doc
