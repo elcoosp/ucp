@@ -102,6 +102,8 @@ fn full_v030_registry_and_w3c() {
     let output = SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![make_test_component("Form")],
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned: 0,
             files_parsed: 0,

@@ -19,6 +19,8 @@ fn make_button_output() -> SynthesisOutput {
             provided_context: None, consumed_contexts: vec![],
         }],
         stats: PipelineStats { files_scanned: 1, files_parsed: 1, components_found: 1, conflicts_detected: 0, llm_enriched: false },
+        provenance: None,
+        curation_log: None,
     }
 }
 

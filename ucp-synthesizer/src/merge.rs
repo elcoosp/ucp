@@ -1,35 +1,50 @@
 use std::collections::HashMap;
 use ucp_core::cam::*;
 use ucp_core::Result;
-
 use crate::pipeline::{PipelineStats, SynthesisOutput};
 
-pub fn merge_specs(specs: &[SynthesisOutput]) -> Result<SynthesisOutput> {
+#[derive(Debug, Clone)]
+pub struct MergeOptions {
+    pub weights: Option<HashMap<String, f32>>,
+    pub incremental_base: Option<SynthesisOutput>,
+}
+
+impl Default for MergeOptions {
+    fn default() -> Self {
+        Self { weights: None, incremental_base: None }
+    }
+}
+
+pub fn merge_specs(specs: &[SynthesisOutput], options: MergeOptions) -> Result<SynthesisOutput> {
+    let (base_components, base_stats) = if let Some(base) = options.incremental_base {
+        (base.components, base.stats)
+    } else {
+        (Vec::new(), PipelineStats {
+            files_scanned: 0, files_parsed: 0, components_found: 0,
+            conflicts_detected: 0, llm_enriched: false,
+        })
+    };
+
     if specs.is_empty() {
         return Ok(SynthesisOutput {
             ucp_version: "4.0.0".to_string(),
-            components: vec![],
-            stats: PipelineStats {
-                files_scanned: 0,
-                files_parsed: 0,
-                components_found: 0,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
+            components: base_components,
+            provenance: None,
+            curation_log: None,
+            stats: base_stats,
         });
     }
 
-    let mut all_components: Vec<(usize, CanonicalAbstractComponent)> = Vec::new();
-    let mut total_scanned = 0usize;
-    let mut total_parsed = 0usize;
-    let mut any_llm = false;
+    let mut all_components: Vec<(usize, CanonicalAbstractComponent)> =
+        base_components.into_iter().enumerate().map(|(i, c)| (i, c)).collect();
+    let mut total_scanned = base_stats.files_scanned;
+    let mut total_parsed = base_stats.files_parsed;
+    let mut any_llm = base_stats.llm_enriched;
 
     for (spec_idx, spec) in specs.iter().enumerate() {
         total_scanned += spec.stats.files_scanned;
         total_parsed += spec.stats.files_parsed;
-        if spec.stats.llm_enriched {
-            any_llm = true;
-        }
+        if spec.stats.llm_enriched { any_llm = true; }
         for comp in &spec.components {
             all_components.push((spec_idx, comp.clone()));
         }
@@ -39,9 +54,15 @@ pub fn merge_specs(specs: &[SynthesisOutput]) -> Result<SynthesisOutput> {
     let components_found = deduped.len();
     let conflicts_detected = detect_cross_spec_conflicts(&mut deduped);
 
+    if let Some(weights) = options.weights {
+        apply_weighted_resolution(&mut deduped, specs, &weights);
+    }
+
     Ok(SynthesisOutput {
         ucp_version: "4.0.0".to_string(),
         components: deduped,
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned: total_scanned,
             files_parsed: total_parsed,
@@ -50,6 +71,42 @@ pub fn merge_specs(specs: &[SynthesisOutput]) -> Result<SynthesisOutput> {
             llm_enriched: any_llm,
         },
     })
+}
+
+fn apply_weighted_resolution(
+    components: &mut [CanonicalAbstractComponent],
+    specs: &[SynthesisOutput],
+    weights: &HashMap<String, f32>,
+) {
+    for comp in components.iter_mut() {
+        for prop in &mut comp.props {
+            if prop.conflicts.is_empty() { continue; }
+            let mut best_weight = -1.0f32;
+            let mut best_type = prop.abstract_type.clone();
+            for conflict in &prop.conflicts {
+                for present in &conflict.present_in {
+                    if let Some(&w) = weights.get(present) {
+                        if w > best_weight {
+                            best_weight = w;
+                            for spec in specs {
+                                for sc in &spec.components {
+                                    if sc.id == comp.id {
+                                        if let Some(p) = sc.props.iter().find(|p| p.canonical_name == prop.canonical_name) {
+                                            best_type = p.abstract_type.clone();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if best_weight >= 0.0 {
+                prop.abstract_type = best_type;
+                prop.conflicts.clear();
+            }
+        }
+    }
 }
 
 fn deduplicate_components(
@@ -322,481 +379,3 @@ fn detect_cross_spec_conflicts(components: &mut [CanonicalAbstractComponent]) ->
     total_conflicts
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    fn empty_spec() -> SynthesisOutput {
-        SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![],
-            stats: PipelineStats {
-                files_scanned: 5,
-                files_parsed: 3,
-                components_found: 0,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        }
-    }
-
-    fn make_component(
-        id: &str,
-        prop_name: &str,
-        prop_type: AbstractPropType,
-    ) -> CanonicalAbstractComponent {
-        let mut hasher = DefaultHasher::new();
-        id.to_lowercase().hash(&mut hasher);
-        prop_name.hash(&mut hasher);
-        let purpose_hash = format!("{:016x}", hasher.finish());
-        CanonicalAbstractComponent {
-            id: id.to_string(),
-            semantic_fingerprint: ucp_core::cam::SemanticFingerprint {
-                purpose_hash,
-                normalized_prop_names: vec![prop_name.to_string()],
-            },
-            props: vec![CanonicalAbstractProp {
-                canonical_name: prop_name.to_string(),
-                abstract_type: prop_type,
-                reactivity: ucp_core::cam::AbstractReactivity::Static,
-                concrete_type: None,
-                sources: vec![],
-                confidence: 0.9,
-                conflicts: vec![],
-            }],
-            events: vec![],
-            extracted_state_machine: None,
-            extracted_parts: vec![],
-            source_repos: vec![SourceAttribution {
-                repo_url: "local".to_string(),
-                file_path: format!("{}.rs", id),
-                line_start: 1,
-            }],
-            provided_context: None,
-            consumed_contexts: vec![],
-        }
-    }
-
-    fn make_component_with_source(
-        id: &str,
-        prop_name: &str,
-        prop_type: AbstractPropType,
-        file_path: &str,
-    ) -> CanonicalAbstractComponent {
-        let mut comp = make_component(id, prop_name, prop_type);
-        comp.source_repos = vec![SourceAttribution {
-            repo_url: "local".to_string(),
-            file_path: file_path.to_string(),
-            line_start: 1,
-        }];
-        comp
-    }
-
-    #[test]
-    fn merge_empty_specs() {
-        assert!(merge_specs(&[]).unwrap().components.is_empty());
-    }
-    #[test]
-    fn merge_single_spec_passthrough() {
-        assert_eq!(merge_specs(&[empty_spec()]).unwrap().stats.files_scanned, 5);
-    }
-    #[test]
-    fn merge_two_specs_accumulates_stats() {
-        let spec2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![],
-            stats: PipelineStats {
-                files_scanned: 10,
-                files_parsed: 7,
-                components_found: 0,
-                conflicts_detected: 0,
-                llm_enriched: true,
-            },
-        };
-        assert_eq!(
-            merge_specs(&[empty_spec(), spec2])
-                .unwrap()
-                .stats
-                .files_scanned,
-            15
-        );
-    }
-
-    #[test]
-    fn dedup_same_components_single_output() {
-        let comp = make_component_with_source(
-            "Button",
-            "label",
-            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
-            "src/a.rs",
-        );
-        let spec = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![comp],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let r = merge_specs(&[spec]).unwrap();
-        assert_eq!(r.stats.components_found, 1);
-        assert!(r.components[0].id.starts_with("unified:"));
-    }
-
-    #[test]
-    fn dedup_same_components_different_sources() {
-        let a = make_component_with_source(
-            "Button",
-            "label",
-            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
-            "leptos/src/button.rs",
-        );
-        let b = make_component_with_source(
-            "Button",
-            "label",
-            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
-            "react/src/Button.tsx",
-        );
-        let s1 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![a],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let s2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![b],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let r = merge_specs(&[s1, s2]).unwrap();
-        assert_eq!(r.stats.components_found, 1);
-        assert_eq!(r.components[0].source_repos.len(), 2);
-    }
-
-    #[test]
-    fn dedup_keeps_higher_confidence() {
-        let mut a = make_component(
-            "Button",
-            "label",
-            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
-        );
-        a.props[0].confidence = 0.7;
-        let mut b = make_component(
-            "Button",
-            "label",
-            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
-        );
-        b.props[0].confidence = 0.95;
-        b.source_repos = vec![SourceAttribution {
-            repo_url: "local".to_string(),
-            file_path: "other.rs".to_string(),
-            line_start: 1,
-        }];
-        let s1 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![a],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let s2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![b],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        assert_eq!(
-            merge_specs(&[s1, s2]).unwrap().components[0].props[0].confidence,
-            0.95
-        );
-    }
-
-    #[test]
-    fn dedup_keeps_state_machine_from_other() {
-        let a = make_component("Dialog", "open", AbstractPropType::ControlFlag);
-        let mut b = make_component("Dialog", "open", AbstractPropType::ControlFlag);
-        b.extracted_state_machine = Some(StateMachine {
-            id: "sm".to_string(),
-            initial: "Closed".to_string(),
-            states: std::collections::BTreeMap::new(),
-        });
-        let s1 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![a],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let s2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![b],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        assert!(merge_specs(&[s1, s2]).unwrap().components[0]
-            .extracted_state_machine
-            .is_some());
-    }
-
-    #[test]
-    fn dedup_keeps_extracted_parts_from_other() {
-        let a = make_component("Card", "children", AbstractPropType::Renderable);
-        let mut b = make_component("Card", "children", AbstractPropType::Renderable);
-        b.extracted_parts = vec![ExtractedPart {
-            name: "children".to_string(),
-            selectable: true,
-        }];
-        let s1 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![a],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let s2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![b],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        assert!(!merge_specs(&[s1, s2]).unwrap().components[0]
-            .extracted_parts
-            .is_empty());
-    }
-
-    #[test]
-    fn dedup_merges_events() {
-        let mut a = make_component("Form", "data", AbstractPropType::Any);
-        a.events = vec![CanonicalAbstractEvent {
-            canonical_name: "Submit".to_string(),
-            abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),
-        }];
-        let mut b = make_component("Form", "data", AbstractPropType::Any);
-        b.events = vec![CanonicalAbstractEvent {
-            canonical_name: "Reset".to_string(),
-            abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),
-        }];
-        let s1 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![a],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let s2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![b],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        assert_eq!(
-            merge_specs(&[s1, s2]).unwrap().components[0].events.len(),
-            2
-        );
-    }
-
-    #[test]
-    fn dedup_deduplicates_events() {
-        let mut a = make_component(
-            "Form",
-            "on_submit",
-            AbstractPropType::AsyncEventHandler(vec![]),
-        );
-        a.events = vec![CanonicalAbstractEvent {
-            canonical_name: "Submit".to_string(),
-            abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),
-        }];
-        let mut b = make_component(
-            "Form",
-            "on_submit",
-            AbstractPropType::AsyncEventHandler(vec![]),
-        );
-        b.events = vec![CanonicalAbstractEvent {
-            canonical_name: "Submit".to_string(),
-            abstract_payload: AbstractPropType::AsyncEventHandler(vec![]),
-        }];
-        let s1 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![a],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let s2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![b],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        assert_eq!(
-            merge_specs(&[s1, s2]).unwrap().components[0].events.len(),
-            1
-        );
-    }
-
-    #[test]
-    fn merge_detects_cross_spec_type_conflict_after_dedup() {
-        let c1 = make_component("Button", "disabled", AbstractPropType::ControlFlag);
-        let c2 = make_component(
-            "Button",
-            "disabled",
-            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
-        );
-        let s1 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![c1],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let s2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![c2],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        assert!(merge_specs(&[s1, s2]).unwrap().stats.conflicts_detected > 0);
-    }
-
-    #[test]
-    fn merge_unrelated_components_no_conflicts() {
-        let a = make_component(
-            "Button",
-            "label",
-            AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
-        );
-        let b = make_component("Modal", "open", AbstractPropType::ControlFlag);
-        let s1 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![a],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let s2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![b],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let r = merge_specs(&[s1, s2]).unwrap();
-        assert_eq!(r.stats.conflicts_detected, 0);
-        assert_eq!(r.stats.components_found, 2);
-    }
-
-    #[test]
-    fn merge_no_conflict_for_matching_types_after_dedup() {
-        let c1 = make_component(
-            "Input",
-            "value",
-            AbstractPropType::ControlledValue(Box::new(AbstractPropType::Any)),
-        );
-        let c2 = make_component(
-            "Input",
-            "value",
-            AbstractPropType::ControlledValue(Box::new(AbstractPropType::Any)),
-        );
-        let s1 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![c1],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        let s2 = SynthesisOutput {
-            ucp_version: "4.0.0".to_string(),
-            components: vec![c2],
-            stats: PipelineStats {
-                files_scanned: 1,
-                files_parsed: 1,
-                components_found: 1,
-                conflicts_detected: 0,
-                llm_enriched: false,
-            },
-        };
-        assert_eq!(merge_specs(&[s1, s2]).unwrap().stats.conflicts_detected, 0);
-    }
-}

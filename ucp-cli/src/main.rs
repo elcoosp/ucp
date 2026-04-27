@@ -4,6 +4,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use ucp_core::cam::PackageManifest;
 use ucp_synthesizer::pipeline::SynthesisOutput;
+use ucp_synthesizer::merge::MergeOptions;
 
 #[derive(ValueEnum, Clone, Debug)]
 enum GeneratorTarget {
@@ -467,7 +468,7 @@ fn cmd_merge(inputs: &[PathBuf], output: &Path, html_dir: &str) -> anyhow::Resul
     for path in inputs {
         specs.push(SynthesisOutput::load_from_file(path)?);
     }
-    let merged = ucp_synthesizer::merge::merge_specs(&specs).context("Merge failed")?;
+    let merged = ucp_synthesizer::merge::merge_specs(&specs, MergeOptions::default()).context("Merge failed")?;
     print_stats(&merged.stats);
     merged.save_to_file(output)?;
     if merged.stats.conflicts_detected > 0 {

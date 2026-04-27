@@ -73,6 +73,8 @@ pub fn make_prop(name: &str, abstract_type: AbstractPropType, concrete: Option<&
 pub fn make_empty_spec() -> SynthesisOutput {
     SynthesisOutput {
         ucp_version: "4.0.0".into(), components: vec![],
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats { files_scanned: 0, files_parsed: 0, components_found: 0, conflicts_detected: 0, llm_enriched: false },
     }
 }

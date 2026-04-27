@@ -1,5 +1,5 @@
 [workspace]
-members = ["ucp-core", "ucp-synthesizer", "ucp-cli"]
+members = ["ucp-core", "ucp-synthesizer", "ucp-cli", "ucp-maintainer"]
 resolver = "2"
 
 [workspace.package]

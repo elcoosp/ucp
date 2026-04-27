@@ -36,6 +36,8 @@ fn v090_llms_txt_export() {
     let output = SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![make_button_component()],
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned: 1,
             files_parsed: 1,
@@ -54,6 +56,8 @@ fn v090_design_md_v1_export() {
     let output = SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![make_button_component()],
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned: 1,
             files_parsed: 1,

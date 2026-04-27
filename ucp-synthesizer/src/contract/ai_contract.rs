@@ -184,6 +184,8 @@ mod tests {
         let output = SynthesisOutput {
             ucp_version: "4.0.0".into(),
             components: vec![comp],
+            provenance: None,
+            curation_log: None,
             stats: PipelineStats {
                 files_scanned: 1,
                 files_parsed: 1,

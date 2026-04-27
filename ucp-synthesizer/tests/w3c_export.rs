@@ -93,6 +93,8 @@ fn export_full_w3c_with_anatomy_states_variants() {
     let output = SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![comp],
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned: 1,
             files_parsed: 1,

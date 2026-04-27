@@ -1,6 +1,21 @@
 use ucp_core::cam::*;
 use ucp_core::Result;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MergeRecord {
+    pub source_spec_path: String,
+    pub source_fingerprint: String,
+    pub merged_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CurationDecision {
+    pub conflict_id: String,
+    pub chosen_resolution: String,
+    pub rationale: Option<String>,
+    pub timestamp: String,
+}
+
 pub const BASE_CONFIDENCE_RUST: f32 = 0.95;
 pub const BASE_CONFIDENCE_TSX: f32 = 0.90;
 pub const ANY_PENALTY_PER_PROP: f32 = 0.08;
@@ -11,6 +26,10 @@ pub struct SynthesisOutput {
     pub ucp_version: String,
     pub components: Vec<CanonicalAbstractComponent>,
     pub stats: PipelineStats,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provenance: Option<Vec<MergeRecord>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub curation_log: Option<Vec<CurationDecision>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -31,11 +50,7 @@ pub struct PipelineOptions {
 
 impl Default for PipelineOptions {
     fn default() -> Self {
-        Self {
-            ollama_url: None,
-            llm_model: "glm-5:cloud".to_string(),
-            dry_run: false,
-        }
+        Self { ollama_url: None, llm_model: "glm-5:cloud".to_string(), dry_run: false }
     }
 }
 
@@ -54,12 +69,7 @@ impl SynthesisOutput {
         Ok(())
     }
 
-    pub fn to_package_manifest(
-        &self,
-        name: &str,
-        version: &str,
-        frameworks: Vec<String>,
-    ) -> PackageManifest {
+    pub fn to_package_manifest(&self, name: &str, version: &str, frameworks: Vec<String>) -> PackageManifest {
         PackageManifest {
             name: name.to_string(),
             version: version.to_string(),

@@ -110,6 +110,8 @@ pub async fn run_pipeline_with_options(
     Ok(SynthesisOutput {
         ucp_version: "4.0.0".to_string(),
         components: all_components,
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned,
             files_parsed,

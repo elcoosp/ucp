@@ -1,3 +1,4 @@
+use ucp_synthesizer::merge::MergeOptions;
 use ucp_core::cam::*;
 use ucp_synthesizer::merge::merge_specs;
 use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
@@ -55,6 +56,8 @@ fn dioxus_context_survives_merge_direct() {
     let spec_a = SynthesisOutput {
         ucp_version: "4.0.0".to_string(),
         components: vec![provider],
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned: 1,
             files_parsed: 1,
@@ -66,6 +69,8 @@ fn dioxus_context_survives_merge_direct() {
     let spec_b = SynthesisOutput {
         ucp_version: "4.0.0".to_string(),
         components: vec![consumer],
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned: 1,
             files_parsed: 1,
@@ -75,7 +80,7 @@ fn dioxus_context_survives_merge_direct() {
         },
     };
 
-    let merged = merge_specs(&[spec_a, spec_b]).unwrap();
+    let merged = merge_specs(&[spec_a, spec_b], MergeOptions::default()).unwrap();
     assert_eq!(merged.components.len(), 2, "Should keep both components");
 
     let prov = merged

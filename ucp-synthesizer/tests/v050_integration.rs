@@ -50,6 +50,8 @@ fn a2ui_export_contains_component_with_variants() {
     let output = SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![make_button_component()],
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned: 1,
             files_parsed: 1,
@@ -72,6 +74,8 @@ fn ag_ui_export_contains_events() {
     let output = SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![make_button_component()],
+        provenance: None,
+        curation_log: None,
         stats: PipelineStats {
             files_scanned: 1,
             files_parsed: 1,
