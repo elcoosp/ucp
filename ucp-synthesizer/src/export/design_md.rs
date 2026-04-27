@@ -6,18 +6,27 @@ use std::path::Path;
 use ucp_core::cam::*;
 use ucp_core::Result;
 
-/// DESIGN.md YAML front matter for AI-native design specs.
+/// DESIGN.md YAML front matter for v1.0 spec.
 #[derive(Serialize)]
 struct DesignMdFrontMatter {
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     colors: Option<Vec<ColorToken>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     typography: Option<Vec<TypographyToken>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     spacing: Option<Vec<SpacingToken>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    breakpoints: Option<Vec<BreakpointToken>>,
 }
 
 #[derive(Serialize)]
 struct ColorToken {
     name: String,
     value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
 }
 
@@ -25,6 +34,7 @@ struct ColorToken {
 struct TypographyToken {
     name: String,
     value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
 }
 
@@ -32,6 +42,15 @@ struct TypographyToken {
 struct SpacingToken {
     name: String,
     value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+}
+
+#[derive(Serialize)]
+struct BreakpointToken {
+    name: String,
+    value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
 }
 
@@ -47,8 +66,42 @@ pub fn export_design_md(
 
     let mut md = String::new();
 
-    // YAML front matter
-    let front_matter = build_front_matter(tokens);
+    let front_matter = DesignMdFrontMatter {
+        title: library_name.to_string(),
+        description: Some(format!("Design system for {}", library_name)),
+        colors: tokens.map(|t| {
+            t.colors
+                .iter()
+                .map(|(k, v)| ColorToken {
+                    name: k.clone(),
+                    value: v.clone(),
+                    description: None,
+                })
+                .collect()
+        }),
+        typography: tokens.map(|t| {
+            t.typography
+                .iter()
+                .map(|(k, v)| TypographyToken {
+                    name: k.clone(),
+                    value: v.clone(),
+                    description: None,
+                })
+                .collect()
+        }),
+        spacing: tokens.map(|t| {
+            t.spacing
+                .iter()
+                .map(|(k, v)| SpacingToken {
+                    name: k.clone(),
+                    value: v.clone(),
+                    description: None,
+                })
+                .collect()
+        }),
+        breakpoints: None,
+    };
+
     let yaml = serde_yaml::to_string(&front_matter).unwrap_or_else(|_| String::new());
     md.push_str("---\n");
     md.push_str(&yaml);
@@ -177,60 +230,6 @@ pub fn export_design_md(
     Ok(())
 }
 
-fn build_front_matter(tokens: Option<&DtcgTokens>) -> DesignMdFrontMatter {
-    match tokens {
-        Some(tok) => DesignMdFrontMatter {
-            colors: if tok.colors.is_empty() {
-                None
-            } else {
-                Some(
-                    tok.colors
-                        .iter()
-                        .map(|(k, v)| ColorToken {
-                            name: k.clone(),
-                            value: v.clone(),
-                            description: None,
-                        })
-                        .collect(),
-                )
-            },
-            typography: if tok.typography.is_empty() {
-                None
-            } else {
-                Some(
-                    tok.typography
-                        .iter()
-                        .map(|(k, v)| TypographyToken {
-                            name: k.clone(),
-                            value: v.clone(),
-                            description: None,
-                        })
-                        .collect(),
-                )
-            },
-            spacing: if tok.spacing.is_empty() {
-                None
-            } else {
-                Some(
-                    tok.spacing
-                        .iter()
-                        .map(|(k, v)| SpacingToken {
-                            name: k.clone(),
-                            value: v.clone(),
-                            description: None,
-                        })
-                        .collect(),
-                )
-            },
-        },
-        None => DesignMdFrontMatter {
-            colors: None,
-            typography: None,
-            spacing: None,
-        },
-    }
-}
-
 fn extract_variants(comp: &CanonicalAbstractComponent) -> Vec<(String, Vec<String>)> {
     let mut variants = Vec::new();
     for p in &comp.props {
@@ -322,7 +321,9 @@ mod tests {
         )
         .unwrap();
         let content = std::fs::read_to_string(tmp.path().join("DESIGN.md")).unwrap();
-        assert!(content.contains("test-lib"));
+        assert!(content.contains("---\n"));
+        assert!(content.contains("title: test-lib"));
+        assert!(content.contains("description:"));
         assert!(content.contains("Button"));
         assert!(content.contains("disabled"));
         assert!(content.contains("Default, Destructive"));

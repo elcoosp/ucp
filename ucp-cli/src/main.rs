@@ -25,6 +25,14 @@ enum ExportTarget {
     Dtcg,
     #[clap(name = "design-md")]
     DesignMd,
+    #[clap(name = "llms-txt")]
+    LlmsTxt,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+enum ImportTarget {
+    #[clap(name = "design-md")]
+    DesignMd,
 }
 
 #[derive(Parser)]
@@ -69,12 +77,31 @@ enum Commands {
         #[arg(long)]
         spec: PathBuf,
     },
+    /// Generate an MCP server.json manifest for JFrog Registry
+    McpServerJson {
+        #[arg(long, short = 'n', default_value = "ucp-server")]
+        name: String,
+        #[arg(long, short = 'd', default_value = "UCP Component Intelligence Server")]
+        description: String,
+        #[arg(long, short = 'o', default_value = "./mcp")]
+        output: PathBuf,
+    },
     Contract {
         #[arg(long)]
         spec: PathBuf,
         #[arg(long, short = 'o', default_value = "./ucp-contract.json")]
         output: PathBuf,
     },
+    /// Import from external formats (DESIGN.md)
+    Import {
+        #[arg(long, short = 't')]
+        target: ImportTarget,
+        #[arg(long)]
+        spec: PathBuf,
+        #[arg(long, short = 'o', default_value = "./ucp-output")]
+        output: PathBuf,
+    },
+    /// Export to external formats (A2UI, AG-UI, DTCG, DESIGN.md, LLMs.txt)
     Export {
         #[arg(long, short = 't')]
         target: ExportTarget,
@@ -149,7 +176,17 @@ async fn main() -> anyhow::Result<()> {
         } => cmd_generate(&spec, &target, &output),
         Commands::Dashboard { spec, output } => cmd_dashboard(&spec, &output),
         Commands::Mcp { spec } => cmd_mcp(&spec).await,
+        Commands::McpServerJson {
+            name,
+            description,
+            output,
+        } => cmd_mcp_server_json(&name, &description, &output),
         Commands::Contract { spec, output } => cmd_contract(&spec, &output),
+        Commands::Import {
+            target,
+            spec,
+            output,
+        } => cmd_import(&spec, &target, &output),
         Commands::Export {
             target,
             spec,
@@ -272,8 +309,26 @@ fn cmd_export(
             version,
             &output.to_string_lossy(),
         )?,
+        ExportTarget::LlmsTxt => {
+            ucp_synthesizer::export::llms_txt::export_llms_txt(&synth, &output.to_string_lossy())?
+        }
     }
     println!("Exported to {}", output.display());
+    Ok(())
+}
+
+fn cmd_import(spec: &Path, target: &ImportTarget, output: &Path) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
+    match target {
+        ImportTarget::DesignMd => {
+            let manifest = ucp_synthesizer::import::design_md::parse_design_md(&content)
+                .context("Failed to parse DESIGN.md")?;
+            let output_path = output.join("ucp-spec.json");
+            let json = serde_json::to_string_pretty(&manifest)?;
+            std::fs::write(&output_path, json)?;
+            println!("Imported DESIGN.md to {}", output_path.display());
+        }
+    }
     Ok(())
 }
 
@@ -320,6 +375,19 @@ async fn cmd_mcp(spec: &Path) -> anyhow::Result<()> {
     let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
     let synth: SynthesisOutput = serde_json::from_str(&content).context("Invalid spec format")?;
     ucp_synthesizer::contract::mcp_server::run_mcp_server(&synth).await?;
+    Ok(())
+}
+
+fn cmd_mcp_server_json(name: &str, description: &str, output: &Path) -> anyhow::Result<()> {
+    ucp_synthesizer::contract::mcp_server::generate_server_json(
+        name,
+        description,
+        &output.to_string_lossy(),
+    )?;
+    println!(
+        "MCP server.json written to {}",
+        output.join("server.json").display()
+    );
     Ok(())
 }
 
