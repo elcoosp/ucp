@@ -55,3 +55,12 @@ components *ARGS:
 
 wr:
     watchexec -w ./wr.sh --clear -r "sh ./wr.sh"
+
+# ---------------------------------------------------------------------------
+# Install tools for test hardening
+# ---------------------------------------------------------------------------
+install-tools:
+    cargo install cargo-insta
+    cargo install cargo-llvm-cov
+    cargo install cargo-fuzz
+    cargo install cargo-mutants

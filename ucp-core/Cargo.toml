@@ -11,3 +11,6 @@ schemars = "1.2"
 thiserror = "2.0"
 pest = "2.7.1"
 pest_derive = "2.7.1"
+
+[dev-dependencies]
+insta = { version = "1.47.2", features = ["json"] }
