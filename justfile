@@ -72,3 +72,16 @@ coverage:
     cargo llvm-cov nextest --lcov --output-path lcov.info
     cargo llvm-cov report --html --output-dir coverage
     echo "Coverage report in coverage/index.html"
+
+# =============================================================================
+# v0.11 Spec Maintainer Toolkit targets
+# =============================================================================
+test-maintainer:
+    cargo test -p ucp-maintainer
+
+test-e2e-maintainer:
+    cargo build && .just-e2e/test_e2e_curate.sh
+
+# Run the interactive curation TUI on two sample specs
+curate-demo *ARGS:
+    cargo run --release -- curate {{ ARGS }}

@@ -58,10 +58,27 @@ pub fn merge_specs(specs: &[SynthesisOutput], options: MergeOptions) -> Result<S
         apply_weighted_resolution(&mut deduped, specs, &weights);
     }
 
+    // Build provenance records for all input specs
+    let provenance: Vec<crate::pipeline::output::MergeRecord> = specs
+        .iter()
+        .enumerate()
+        .map(|(i, spec)| crate::pipeline::output::MergeRecord {
+            source_spec_path: format!("input-{}", i),
+            source_fingerprint: format!("{:016x}", spec.components.len()),
+            merged_at: {
+                let d = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                format!("{}", d)
+            },
+        })
+        .collect();
+
     Ok(SynthesisOutput {
         ucp_version: "4.0.0".to_string(),
         components: deduped,
-        provenance: None,
+        provenance: Some(provenance),
         curation_log: None,
         stats: PipelineStats {
             files_scanned: total_scanned,
