@@ -3442,6 +3442,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "ucp-core",
+ "ucp-maintainer",
  "ucp-synthesizer",
 ]
 

@@ -3,8 +3,15 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use ucp_core::cam::PackageManifest;
-use ucp_synthesizer::pipeline::SynthesisOutput;
+use ucp_maintainer::{
+    diff::diff_specs_text,
+    watch,
+    registry::SpecStore,
+    tokens::{merge_token_files, TokenMergeOptions},
+    verify::verify_spec_against_source,
+};
 use ucp_synthesizer::merge::MergeOptions;
+use ucp_synthesizer::pipeline::SynthesisOutput;
 
 #[derive(ValueEnum, Clone, Debug)]
 enum GeneratorTarget {
@@ -78,7 +85,6 @@ enum Commands {
         #[arg(long)]
         spec: PathBuf,
     },
-    /// Generate an MCP server.json manifest for JFrog Registry
     McpServerJson {
         #[arg(long, short = 'n', default_value = "ucp-server")]
         name: String,
@@ -93,7 +99,6 @@ enum Commands {
         #[arg(long, short = 'o', default_value = "./ucp-contract.json")]
         output: PathBuf,
     },
-    /// Import from external formats (DESIGN.md)
     Import {
         #[arg(long, short = 't')]
         target: ImportTarget,
@@ -102,7 +107,6 @@ enum Commands {
         #[arg(long, short = 'o', default_value = "./ucp-output")]
         output: PathBuf,
     },
-    /// Export to external formats (A2UI, AG-UI, DTCG, DESIGN.md, LLMs.txt)
     Export {
         #[arg(long, short = 't')]
         target: ExportTarget,
@@ -136,6 +140,73 @@ enum Commands {
         #[arg(long, short = 'v')]
         verbose: bool,
     },
+    /// v0.11: Interactive merge curation
+    Curate {
+        #[arg(long)]
+        merged: PathBuf,
+        #[arg(long, short = 'o', default_value = "./curated.json")]
+        output: PathBuf,
+    },
+    /// v0.11: Structural spec diff
+    Diff {
+        #[arg(long)]
+        spec_a: PathBuf,
+        #[arg(long)]
+        spec_b: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// v0.11: Merge DTCG tokens
+    MergeTokens {
+        #[arg(long, num_args = 1..)]
+        input: Vec<PathBuf>,
+        #[arg(long, short = 'o', default_value = "./merged-tokens.json")]
+        output: PathBuf,
+        #[arg(long, default_value = "error")]
+        strategy: String,
+        #[arg(long)]
+        force: bool,
+    },
+    /// v0.11: Drift detection
+    VerifySpec {
+        #[arg(long)]
+        spec: PathBuf,
+        #[arg(long)]
+        source_dir: PathBuf,
+    },
+    /// v0.11: Local spec registry management
+    RegistryStore {
+        #[arg(long)]
+        db: Option<PathBuf>,
+        #[command(subcommand)]
+        action: RegistryStoreAction,
+    },
+    /// v0.11: Watch source directory and auto-rebuild
+    Watch {
+        #[arg(long)]
+        source_dir: String,
+        #[arg(long, short = 'o', default_value = "./watch-output")]
+        output: PathBuf,
+        #[arg(long)]
+        base_spec: Option<PathBuf>,
+        #[arg(long, default_value = "ucp-library")]
+        library: String,
+        #[arg(long, default_value = "0.1.0")]
+        version: String,
+        #[arg(long, default_value = "500")]
+        debounce_ms: u64,
+    },
+    /// v0.11: Export all formats
+    ExportAll {
+        #[arg(long)]
+        spec: PathBuf,
+        #[arg(long, short = 'o', default_value = "./export-all")]
+        output: PathBuf,
+        #[arg(long, default_value = "ucp-library")]
+        library: String,
+        #[arg(long, default_value = "0.1.0")]
+        version: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -158,6 +229,23 @@ enum RegistryAction {
     },
 }
 
+#[derive(Subcommand)]
+enum RegistryStoreAction {
+    /// Store a spec in the local registry
+    Store {
+        #[arg(long)]
+        spec: PathBuf,
+        #[arg(long, short = 'n')]
+        name: String,
+    },
+    /// List stored specs
+    List,
+    /// Show a specific spec
+    Show { id: i64 },
+    /// Delete a spec
+    Delete { id: i64 },
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -168,33 +256,35 @@ async fn main() -> anyhow::Result<()> {
             ollama_url,
             llm_model,
             watch,
-        } => cmd_bootstrap(&source_dir, &output_dir, ollama_url, &llm_model, watch).await,
-        Commands::Validate { spec } => cmd_validate(&spec),
+        } => cmd_bootstrap(&source_dir, &output_dir, ollama_url, &llm_model, watch)
+            .await
+            .context("Bootstrap failed")?,
+        Commands::Validate { spec } => cmd_validate(&spec)?,
         Commands::Generate {
             spec,
             target,
             output,
-        } => cmd_generate(&spec, &target, &output),
-        Commands::Dashboard { spec, output } => cmd_dashboard(&spec, &output),
-        Commands::Mcp { spec } => cmd_mcp(&spec).await,
+        } => cmd_generate(&spec, &target, &output)?,
+        Commands::Dashboard { spec, output } => cmd_dashboard(&spec, &output)?,
+        Commands::Mcp { spec } => cmd_mcp(&spec).await.context("MCP server failed")?,
         Commands::McpServerJson {
             name,
             description,
             output,
-        } => cmd_mcp_server_json(&name, &description, &output),
-        Commands::Contract { spec, output } => cmd_contract(&spec, &output),
+        } => cmd_mcp_server_json(&name, &description, &output)?,
+        Commands::Contract { spec, output } => cmd_contract(&spec, &output)?,
         Commands::Import {
             target,
             spec,
             output,
-        } => cmd_import(&spec, &target, &output),
+        } => cmd_import(&spec, &target, &output)?,
         Commands::Export {
             target,
             spec,
             output,
             library,
             version,
-        } => cmd_export(&spec, &target, &output, &library, &version),
+        } => cmd_export(&spec, &target, &output, &library, &version)?,
         Commands::Registry { action } => match action {
             RegistryAction::Build {
                 spec,
@@ -212,20 +302,46 @@ async fn main() -> anyhow::Result<()> {
                 homepage.as_deref(),
                 base,
             ),
-        },
+        }?,
         Commands::Merge {
             input,
             output,
             html_dir,
-        } => cmd_merge(&input, &output, &html_dir),
+        } => cmd_merge(&input, &output, &html_dir)?,
         Commands::Components {
             spec,
             format,
             filter,
             verbose,
-        } => cmd_components(&spec, &format, verbose, &filter),
+        } => cmd_components(&spec, &format, verbose, &filter)?,
+        // v0.11 commands
+        Commands::Curate { merged, output } => cmd_curate(&merged, &output)?,
+        Commands::Diff {
+            spec_a,
+            spec_b,
+            json,
+        } => cmd_diff(&spec_a, &spec_b, json)?,
+        Commands::MergeTokens {
+            input,
+            output,
+            strategy,
+            force,
+        } => cmd_merge_tokens(&input, &output, &strategy, force)?,
+        Commands::VerifySpec { spec, source_dir } => cmd_verify_spec(&spec, &source_dir).await?,
+        Commands::RegistryStore { db, action } => cmd_registry_store(db, action)?,
+        Commands::ExportAll {
+            spec,
+            output,
+            library,
+            version,
+        } => cmd_export_all(&spec, &output, &library, &version)?,
     }
+    Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Existing command implementations (unchanged)
+// ---------------------------------------------------------------------------
 
 fn load_manifest(spec: &Path) -> anyhow::Result<PackageManifest> {
     let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
@@ -468,7 +584,8 @@ fn cmd_merge(inputs: &[PathBuf], output: &Path, html_dir: &str) -> anyhow::Resul
     for path in inputs {
         specs.push(SynthesisOutput::load_from_file(path)?);
     }
-    let merged = ucp_synthesizer::merge::merge_specs(&specs, MergeOptions::default()).context("Merge failed")?;
+    let merged = ucp_synthesizer::merge::merge_specs(&specs, MergeOptions::default())
+        .context("Merge failed")?;
     print_stats(&merged.stats);
     merged.save_to_file(output)?;
     if merged.stats.conflicts_detected > 0 {
@@ -538,5 +655,236 @@ fn write_review_html(
 ) -> anyhow::Result<()> {
     let html = format!("<!DOCTYPE html><html><head><style>body{{font-family:sans-serif;}}</style></head><body><h1>UCP Review</h1><p>{} components from {}</p></body></html>", output.components.len(), source_label);
     std::fs::write(PathBuf::from(output_dir).join("review.html"), html)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// v0.11 command implementations
+// ---------------------------------------------------------------------------
+
+/// Run interactive curation on a merged spec.
+fn cmd_curate(merged: &Path, output: &Path) -> anyhow::Result<()> {
+    let merged_spec =
+        SynthesisOutput::load_from_file(merged).context("Failed to load merged spec")?;
+    let curated =
+        ucp_maintainer::curate_tui::run_curation_tui(&merged_spec).context("Curation failed")?;
+    curated
+        .save_to_file(output)
+        .context("Failed to save curated spec")?;
+    println!("✅ Curated spec saved to {}", output.display());
+    Ok(())
+}
+
+/// Diff two specs.
+fn cmd_diff(spec_a: &Path, spec_b: &Path, json: bool) -> anyhow::Result<()> {
+    let a = SynthesisOutput::load_from_file(spec_a).context("Failed to load spec_a")?;
+    let b = SynthesisOutput::load_from_file(spec_b).context("Failed to load spec_b")?;
+
+    if json {
+        let report = ucp_maintainer::diff::diff_specs(&a, &b)?;
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        let text = diff_specs_text(&a, &b)?;
+        println!("{}", text);
+    }
+    Ok(())
+}
+
+/// Merge DTCG token files.
+fn cmd_merge_tokens(
+    inputs: &[PathBuf],
+    output: &Path,
+    strategy: &str,
+    force: bool,
+) -> anyhow::Result<()> {
+    let mut files = Vec::new();
+    for path in inputs {
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read {}", path.display()))?;
+        let tokens: ucp_synthesizer::extract::tokens::DtcgTokens =
+            serde_json::from_str(&content)
+                .with_context(|| format!("Invalid tokens file: {}", path.display()))?;
+        files.push((path.to_string_lossy().to_string(), tokens));
+    }
+
+    let opts = TokenMergeOptions {
+        strategy: strategy.to_string(),
+        force,
+    };
+    let result = merge_token_files(
+        &files
+            .iter()
+            .map(|(p, t)| (p.clone(), t.clone()))
+            .collect::<Vec<_>>(),
+        &opts,
+    )
+    .context("Token merge failed")?;
+
+    if !result.conflicts.is_empty() {
+        println!("⚠️  {} conflict(s) detected:", result.conflicts.len());
+        for c in &result.conflicts {
+            println!("  - {}:", c.key);
+            for (src, val) in &c.values {
+                println!("      {}: {}", src, val);
+            }
+        }
+    }
+
+    let json = serde_json::to_string_pretty(&result.merged)?;
+    std::fs::write(output, json)?;
+    println!("✅ Merged tokens saved to {}", output.display());
+    Ok(())
+}
+
+/// Run drift detection against a source directory.
+async fn cmd_verify_spec(spec_path: &Path, source_dir: &Path) -> anyhow::Result<()> {
+    let spec = SynthesisOutput::load_from_file(spec_path)?;
+    let report = verify_spec_against_source(&spec, &source_dir.to_string_lossy())
+        .await
+        .context("Drift detection failed")?;
+
+    if report.drifted_components.is_empty()
+        && report.missing_in_source.is_empty()
+        && report.new_in_source.is_empty()
+    {
+        println!("✅ No drift detected – spec is up-to-date.");
+    } else {
+        println!("⚠️  Drift detected:");
+        for comp in &report.drifted_components {
+            println!(
+                "  ~ {} (confidence: {:.2})",
+                comp.component_id, comp.confidence
+            );
+            for drift in &comp.prop_drifts {
+                println!(
+                    "      {}: {} → {}",
+                    drift.prop_name, drift.spec_type, drift.source_type
+                );
+            }
+        }
+        for comp in &report.missing_in_source {
+            println!("  - {} (in spec, missing from source)", comp);
+        }
+        for comp in &report.new_in_source {
+            println!("  + {} (in source, not in spec)", comp);
+        }
+    }
+
+    Ok(())
+}
+
+/// Manage the local spec registry.
+fn cmd_registry_store(db: Option<PathBuf>, action: RegistryStoreAction) -> anyhow::Result<()> {
+    let db_path = db
+        .unwrap_or_else(|| PathBuf::from("ucp-registry.db"))
+        .to_string_lossy()
+        .to_string();
+
+    let store = SpecStore::open(&db_path).context("Failed to open registry store")?;
+
+    match action {
+        RegistryStoreAction::Store { spec, name } => {
+            let spec = SynthesisOutput::load_from_file(&spec)?;
+            let id = store.store(&name, &spec).context("Failed to store spec")?;
+            println!("✅ Stored as ID {} (name: {})", id, name);
+        }
+        RegistryStoreAction::List => {
+            let items = store.list().context("Failed to list registry")?;
+            if items.is_empty() {
+                println!("Registry is empty.");
+            } else {
+                for (id, name) in &items {
+                    println!("  [{}] {}", id, name);
+                }
+            }
+        }
+        RegistryStoreAction::Show { id } => {
+            match store.get(id).context("Failed to retrieve spec")? {
+                Some(spec) => {
+                    println!("{}", serde_json::to_string_pretty(&spec)?);
+                }
+                None => println!("No spec with ID {}", id),
+            }
+        }
+        RegistryStoreAction::Delete { id } => {
+            if store.delete(id).context("Failed to delete spec")? {
+                println!("✅ Deleted spec ID {}", id);
+            } else {
+                println!("No spec with ID {}", id);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Export a spec to all supported formats.
+fn cmd_export_all(
+    spec_path: &Path,
+    output_dir: &Path,
+    library: &str,
+    version: &str,
+) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(spec_path).context("Failed to read spec")?;
+    let synth: SynthesisOutput = serde_json::from_str(&content).context("Invalid spec format")?;
+
+    std::fs::create_dir_all(output_dir)?;
+
+    // A2UI
+    ucp_synthesizer::export::a2ui::export_a2ui(
+        &synth,
+        library,
+        version,
+        &output_dir.join("a2ui").to_string_lossy(),
+    )?;
+
+    // AG-UI
+    ucp_synthesizer::export::ag_ui::export_ag_ui(
+        &synth,
+        &output_dir.join("ag-ui").to_string_lossy(),
+    )?;
+
+    // W3C
+    ucp_synthesizer::export::w3c::export_w3c(&synth, &output_dir.join("w3c").to_string_lossy())?;
+
+    // DESIGN.md
+    ucp_synthesizer::export::design_md::export_design_md(
+        &synth,
+        None,
+        library,
+        version,
+        &output_dir.join("design-md").to_string_lossy(),
+    )?;
+
+    // LLMs.txt
+    ucp_synthesizer::export::llms_txt::export_llms_txt(
+        &synth,
+        &output_dir.join("llms-txt").to_string_lossy(),
+    )?;
+
+    // AI Contract
+    ucp_synthesizer::contract::ai_contract::export_ai_contract(
+        &synth,
+        &output_dir.join("ai-contract.json").to_string_lossy(),
+    )?;
+
+    // Registry (shadcn-compatible)
+    let manifest = synth.to_package_manifest(library, version, vec!["dioxus".into()]);
+    ucp_synthesizer::generate::registry::generate_registry(
+        &manifest,
+        &output_dir.join("registry").to_string_lossy(),
+        None,
+        None,
+        None,
+    )?;
+
+    println!("✅ All exports written to {}", output_dir.display());
+    println!("   📁 a2ui/a2ui-catalog.json");
+    println!("   📁 ag-ui/ag-ui-events.json");
+    println!("   📁 w3c/ucp-spec.w3c.json");
+    println!("   📁 design-md/DESIGN.md");
+    println!("   📁 llms-txt/llms.txt");
+    println!("   📁 ai-contract.json");
+    println!("   📁 registry/registry.json");
+
     Ok(())
 }
