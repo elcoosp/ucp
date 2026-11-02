@@ -1,3 +1,4 @@
+//! Backward-compatibility tests against v0.5.0 spec fixtures.
 use std::fs;
 use tempfile::TempDir;
 use ucp_core::cam::*;
