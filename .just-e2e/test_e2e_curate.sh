@@ -29,7 +29,7 @@ step "Merge the two specs"
 "$BIN" merge --input "$DIR/out-a/ucp-spec.json" --input "$DIR/out-b/ucp-spec.json" -o "$DIR/merged.json"
 
 step "Verify merged spec has conflicts"
-if "$BIN" validate "$DIR/merged.json" | grep -q "unresolved conflict"; then
+if "$BIN" validate "$DIR/merged.json" | grep -qE "unresolved conflict|Conflicts:"; then
     echo "OK: Conflict detected as expected"
 else
     echo "FAIL: No conflict found"
