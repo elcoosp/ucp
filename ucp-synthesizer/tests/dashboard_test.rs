@@ -1,3 +1,4 @@
+//! Tests for the static HTML curation dashboard generator.
 use std::fs;
 use tempfile::TempDir;
 use ucp_core::cam::*;
