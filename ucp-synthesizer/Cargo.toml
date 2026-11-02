@@ -30,11 +30,20 @@ askama = "0.16.1"
 serde_norway = "0.9.42"
 
 [dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 mockito = "1.7.2"
 tokio-test = "0.4.6"
 tempfile = "3.27.0"
 insta = { version = "1.49.0", features = ["json", "yaml"] }
 proptest = "1.12.0"
+
+[[bench]]
+name = "extraction_bench"
+harness = false
+
+[[bench]]
+name = "merge_bench"
+harness = false
 
 [lints]
 workspace = true
