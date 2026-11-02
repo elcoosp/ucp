@@ -13,26 +13,42 @@ const ALLOWED_LICENSES: &[&str] = &[
 ];
 
 #[cfg(feature = "license-check")]
+/// Compile the identifier regex once; the pattern is a compile-time
+/// constant and cannot fail.
+fn ident_regex() -> &'static Regex {
+    static IDENT_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    IDENT_RE.get_or_init(|| Regex::new("[A-Za-z0-9.+-]+").expect("valid static regex"))
+}
+
+/// Validate that a license string is an accepted SPDX identifier.
+///
+/// # Errors
+///
+/// Errors when the string is not a valid SPDX expression or is not on
+/// the allow-list (MIT, Apache-2.0, BSD variants, ISC).
+///
+/// # Panics
+///
+/// Panics only if the static identifier regex fails to compile, which
+/// cannot happen for the fixed pattern.
 pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
     let _expr = spdx::Expression::parse(license_str)
-        .map_err(|e| UcpError::License(format!("Invalid SPDX: {}", e)))?;
+        .map_err(|e| UcpError::License(format!("Invalid SPDX: {e}")))?;
 
-    let re = Regex::new(r"[A-Za-z0-9.+-]+").unwrap();
-    for cap in re.captures_iter(license_str) {
-        let id = cap.get(0).unwrap().as_str();
-        match id {
-            "AND" | "OR" | "WITH" => continue,
-            _ if id.starts_with(char::is_uppercase)
-                || id.starts_with(|c: char| c.is_ascii_digit()) =>
-            {
-                if !ALLOWED_LICENSES.contains(&id) {
-                    return Err(UcpError::License(format!(
-                        "Rejected non-permissive license: {}. Allowed: {:?}",
-                        id, ALLOWED_LICENSES
-                    )));
-                }
-            }
-            _ => continue,
+    for cap in ident_regex().captures_iter(license_str) {
+        let Some(id) = cap.get(0).map(|m| m.as_str()) else {
+            continue;
+        };
+        // SPDX composition keywords are not license ids.
+        if matches!(id, "AND" | "OR" | "WITH") {
+            continue;
+        }
+        let is_license_id =
+            id.starts_with(char::is_uppercase) || id.starts_with(|c: char| c.is_ascii_digit());
+        if is_license_id && !ALLOWED_LICENSES.contains(&id) {
+            return Err(UcpError::License(format!(
+                "Rejected non-permissive license: {id}. Allowed: {ALLOWED_LICENSES:?}"
+            )));
         }
     }
     Ok(())
@@ -42,6 +58,7 @@ pub fn check_spdx_compliance(license_str: &str) -> Result<()> {
 ///
 /// Uses `std::path::Path` component iteration instead of string splitting,
 /// so it works correctly on both Unix and Windows paths regardless of separator.
+#[must_use]
 pub fn is_path_safe_to_parse(path: &str) -> bool {
     let path = Path::new(path);
 
