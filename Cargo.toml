@@ -6,3 +6,20 @@ resolver = "2"
 version = "0.12.0"
 edition = "2021"
 license = "MIT"
+rust-version = "1.85"
+
+# Pedantic clippy, enforced workspace-wide with zero `allow` escapes.
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+[workspace.lints.rust]
+missing_docs = "warn"
+
+# Sandbox-friendly profiles: no incremental state, no debug info.
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false
