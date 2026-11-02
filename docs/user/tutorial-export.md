@@ -23,17 +23,12 @@ This produces:
 
 ```
 exports/
-├── a2ui/
-│   └── a2ui-catalog.json       # A2UI v0.9 catalog
-├── ag-ui/
-│   └── ag-ui-events.json       # AG-UI event schema
 ├── w3c/
 │   └── ucp-spec.w3c.json       # W3C UI Specification format
 ├── design-md/
-│   └── DESIGN.md               # AI‑native design spec
+│   └── DESIGN.md               # Human/agent-readable design spec
 ├── llms-txt/
-│   └── llms.txt                # LLM‑friendly documentation
-├── ai-contract.json            # AI contract for tool use
+│   └── llms.txt                # LLM-friendly documentation
 └── registry/
     ├── registry.json           # shadcn v4 registry index
     └── registry-item-*.json    # Individual component registry items
