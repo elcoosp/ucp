@@ -1,19 +1,30 @@
 use ucp_core::Result;
 
+/// Raw TSX component found by the Biome-based extractor.
 #[derive(Debug, Clone)]
 pub struct RawTsxExtraction {
+    /// Component display name.
     pub name: String,
+    /// 1-based line where the component declaration starts.
     pub line_start: usize,
+    /// Props declared on the component.
     pub props: Vec<RawTsxPropExtraction>,
+    /// Context type this component provides, if any.
     pub provided_context: Option<String>,
+    /// Context types this component consumes.
     pub consumed_contexts: Vec<String>,
 }
 
+/// Raw prop of a TSX component before type unification.
 #[derive(Debug, Clone)]
 pub struct RawTsxPropExtraction {
+    /// Prop name as declared in the interface/type literal.
     pub name: String,
+    /// Raw TypeScript type annotation text.
     pub raw_type: String,
+    /// True when the prop is not required.
     pub is_optional: bool,
+    /// True for React `...rest` spread-attribute props.
     pub is_spread_attributes: bool,
 }
 
@@ -27,12 +38,18 @@ pub struct RawTsxPropExtraction {
 /// - `export default function X(` named default exports
 /// - `const X: React.FC<XProps> =` and `const X: FC<XProps> =` forms
 /// - `class X extends React.Component<XProps>` class components
+/// # Errors
+///
+/// Errors when the Biome parser cannot tokenize the source.
 pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
     let mut components = Vec::new();
     let mut current_props: Vec<RawTsxPropExtraction> = Vec::new();
     let mut in_block = false;
     let mut brace_depth = 0usize;
     let mut block_buffer = String::new();
+
+    // Context usage is file-scoped in TS sources.
+    let usage = super::context::detect_react_context(code);
 
     for (current_line, line) in code.lines().enumerate() {
         let trimmed = line.trim();
@@ -77,8 +94,8 @@ pub fn extract_tsx_components(code: &str) -> Result<Vec<RawTsxExtraction>> {
                         name: name.to_string(),
                         line_start: current_line + 1,
                         props: current_props.clone(),
-                        provided_context: None,
-                        consumed_contexts: vec![],
+                        provided_context: usage.provided.clone(),
+                        consumed_contexts: usage.consumed.clone(),
                     });
                     current_props.clear();
                 }
@@ -201,7 +218,7 @@ fn extract_component_name(line: &str) -> Option<&str> {
         return stripped
             .split(':')
             .next()
-            .map(|s| s.trim())
+            .map(str::trim)
             .filter(|n| !n.is_empty());
     }
 
@@ -268,15 +285,14 @@ fn parse_props_from_body(body: &str, props: &mut Vec<RawTsxPropExtraction>) {
 fn parse_single_prop(segment: &str, props: &mut Vec<RawTsxPropExtraction>) {
     let seg = segment.trim();
 
-    if seg.is_empty() || seg.starts_with("//") || seg.starts_with("/*") || seg.starts_with("*") {
+    if seg.is_empty() || seg.starts_with("//") || seg.starts_with("/*") || seg.starts_with('*') {
         return;
     }
 
     let seg = seg.strip_prefix("readonly").unwrap_or(seg).trim();
 
-    let colon_pos = match find_prop_colon(seg) {
-        Some(pos) => pos,
-        None => return,
+    let Some(colon_pos) = find_prop_colon(seg) else {
+        return;
     };
 
     let name_part = &seg[..colon_pos];
@@ -322,41 +338,4 @@ fn find_prop_colon(s: &str) -> Option<usize> {
         }
     }
     None
-}
-
-#[allow(dead_code)]
-fn detect_react_context(source: &str) -> (Option<String>, Vec<String>) {
-    let mut provided = None;
-    let mut consumed = Vec::new();
-    for line in source.lines() {
-        let t = line.trim();
-        if t.contains("createContext") {
-            if let Some(p) = t.find("createContext") {
-                let after = &t[p + "createContext".len()..];
-                if let Some(lp) = after.find('(') {
-                    let inner = &after[lp + 1..];
-                    if let Some(rp) = inner.find(')') {
-                        let ty = inner[..rp].trim().trim_matches(|c| c == '<' || c == '>');
-                        if !ty.is_empty() && ty.chars().next().unwrap().is_uppercase() {
-                            provided = Some(ty.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        if t.contains("useContext") {
-            if let Some(p) = t.find("useContext") {
-                let after = &t[p + "useContext".len()..];
-                if after.trim().starts_with('<') {
-                    if let Some(rp) = after.find('>') {
-                        let ty = after[1..rp].trim().to_string();
-                        if !ty.is_empty() {
-                            consumed.push(ty);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    (provided, consumed)
 }
