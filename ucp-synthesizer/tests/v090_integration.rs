@@ -1,3 +1,4 @@
+//! Backward-compatibility tests against v0.9.0 spec fixtures.
 use tempfile::TempDir;
 use ucp_core::cam::*;
 use ucp_synthesizer::contract::mcp_server::generate_server_json;
