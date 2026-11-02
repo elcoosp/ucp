@@ -1,0 +1,49 @@
+{
+  "ucp_version": "4.0.0",
+  "components": [
+    {
+      "id": "tsx:src/button.tsx:Button",
+      "semantic_fingerprint": {
+        "purpose_hash": "60ecd42e12c2f2a4",
+        "normalized_prop_names": ["variant", "disabled"]
+      },
+      "props": [
+        {
+          "canonical_name": "variant",
+          "abstract_type": {"staticValue": "any"},
+          "reactivity": "static",
+          "concrete_type": "\"default\"|\"destructive\"",
+          "sources": [
+            {"repo_id": "src/button.tsx", "original_name": "variant", "original_type": "\"default\" | \"destructive\""}
+          ],
+          "confidence": 0.72,
+          "conflicts": []
+        },
+        {
+          "canonical_name": "disabled",
+          "abstract_type": "controlFlag",
+          "reactivity": "static",
+          "concrete_type": "bool",
+          "sources": [
+            {"repo_id": "src/button.tsx", "original_name": "disabled", "original_type": "boolean"}
+          ],
+          "confidence": 0.72,
+          "conflicts": []
+        }
+      ],
+      "events": [],
+      "extracted_state_machine": null,
+      "extracted_parts": [],
+      "source_repos": [
+        {"repo_url": "local", "file_path": "src/button.tsx", "line_start": 6}
+      ]
+    }
+  ],
+  "stats": {
+    "files_scanned": 1,
+    "files_parsed": 1,
+    "components_found": 1,
+    "conflicts_detected": 0,
+    "cache_hits": 0
+  }
+}
