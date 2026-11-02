@@ -41,7 +41,7 @@ fn make_conflict_spec() -> SynthesisOutput {
             files_parsed: 0,
             components_found: 0,
             conflicts_detected: 0,
-            llm_enriched: false,
+            cache_hits: 0,
         },
         provenance: None,
         curation_log: None,
