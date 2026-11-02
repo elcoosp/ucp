@@ -9,7 +9,7 @@ use ucp_core::Result;
 use super::context;
 
 /// A component extracted from Rust source before unification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RawComponentExtraction {
     /// Component name (fn or struct identifier).
     pub name: String,
@@ -27,7 +27,7 @@ pub struct RawComponentExtraction {
 }
 
 /// A single prop extracted from Rust source before unification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RawPropExtraction {
     /// Prop name.
     pub name: String,
