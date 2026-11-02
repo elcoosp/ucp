@@ -65,16 +65,17 @@ You should see:
      - variant: StaticValue(Any)
 ```
 
-## Step 4: Use LLM Enrichment (Optional)
+## Step 4: Machine-Readable Output
 
-If you have an Ollama instance running:
+For CI, add `--json` to get a one-line machine-readable summary:
 
 ``` bash
-ucp bootstrap --source-dir my-lib --output-dir ./spec-enriched \
-  --ollama-url http://localhost:11434 --llm-model mistral
+ucp bootstrap --source-dir my-lib --output-dir ./spec --json
+# {"components":12,"ok":true,"output":"./spec/ucp-spec.json","stats":{...}}
 ```
 
-The LLM will add descriptions, keywords, and infer state machines.
+Bootstrap is fully offline and deterministic: the same sources always produce the
+same spec bytes, so the spec can live in version control.
 
 ## Next Steps
 
