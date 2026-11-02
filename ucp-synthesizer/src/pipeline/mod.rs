@@ -1,9 +1,9 @@
 //! End-to-end synthesis pipeline: walk, parse, unify, enrich, report.
 
+/// Incremental parse cache (0.13.0).
+pub mod cache;
 /// Fingerprint-based conflict detection.
 pub mod conflicts;
-/// Optional LLM enrichment stage.
-pub mod enrichment;
 /// Directory walk + parallel parse + unify driver.
 pub mod extraction;
 /// Output/stats/options types.
