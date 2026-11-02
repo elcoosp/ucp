@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 use ucp_core::cam::PackageManifest;
 use ucp_maintainer::{
     diff::diff_specs_text,
-    watch,
     registry::SpecStore,
     tokens::{merge_token_files, TokenMergeOptions},
     verify::verify_spec_against_source,
@@ -236,15 +235,6 @@ enum RegistryAction {
         #[arg(long, short = 't')]
         tokens: Option<PathBuf>,
     },
-    /// v0.13: Start a self-hosted registry HTTP server
-    Serve {
-        #[arg(long)]
-        spec: PathBuf,
-        #[arg(long, default_value = "3000")]
-        port: u16,
-        #[arg(long)]
-        token: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -277,6 +267,15 @@ async fn main() -> anyhow::Result<()> {
         } => cmd_bootstrap(&source_dir, &output_dir, ollama_url, &llm_model, watch)
             .await
             .context("Bootstrap failed")?,
+        other => dispatch(other).await?,
+    }
+    Ok(())
+}
+
+/// Dispatch the spec-processing commands (async where the pipeline is).
+async fn dispatch(command: Commands) -> anyhow::Result<()> {
+    match command {
+        Commands::Bootstrap { .. } => unreachable!("handled in main"),
         Commands::Validate { spec } => cmd_validate(&spec)?,
         Commands::Generate {
             spec,
@@ -284,7 +283,7 @@ async fn main() -> anyhow::Result<()> {
             output,
         } => cmd_generate(&spec, &target, &output)?,
         Commands::Dashboard { spec, output } => cmd_dashboard(&spec, &output)?,
-        Commands::Mcp { spec } => cmd_mcp(&spec).await.context("MCP server failed")?,
+        Commands::Mcp { spec } => cmd_mcp(&spec).context("MCP server failed")?,
         Commands::McpServerJson {
             name,
             description,
@@ -320,10 +319,6 @@ async fn main() -> anyhow::Result<()> {
                 homepage.as_deref(),
                 base,
             ),
-
-            RegistryAction::Serve { spec, port, token } => {
-                cmd_registry_serve(&spec, port, token).await
-            }
         }?,
         Commands::Merge {
             input,
@@ -335,7 +330,7 @@ async fn main() -> anyhow::Result<()> {
             format,
             filter,
             verbose,
-        } => cmd_components(&spec, &format, verbose, &filter)?,
+        } => cmd_components(&spec, &format, verbose, filter.as_deref())?,
         // v0.11 commands
         Commands::Curate { merged, output } => cmd_curate(&merged, &output)?,
         Commands::Diff {
@@ -351,7 +346,14 @@ async fn main() -> anyhow::Result<()> {
         } => cmd_merge_tokens(&input, &output, &strategy, force)?,
         Commands::VerifySpec { spec, source_dir } => cmd_verify_spec(&spec, &source_dir).await?,
         Commands::RegistryStore { db, action } => cmd_registry_store(db, action)?,
-        Commands::Watch { source_dir, output, base_spec, library, version, debounce_ms } => {
+        Commands::Watch {
+            source_dir,
+            output,
+            base_spec,
+            library,
+            version,
+            debounce_ms,
+        } => {
             ucp_maintainer::watch::run_watch(
                 &source_dir,
                 base_spec.as_deref(),
@@ -359,8 +361,9 @@ async fn main() -> anyhow::Result<()> {
                 &library,
                 &version,
                 debounce_ms,
-            ).await?;
-        },
+            )
+            .await?;
+        }
         Commands::ExportAll {
             spec,
             output,
@@ -398,16 +401,16 @@ fn cmd_generate(spec: &Path, target: &GeneratorTarget, output: &Path) -> anyhow:
             &output.to_string_lossy(),
         )?,
         GeneratorTarget::React => {
-            ucp_synthesizer::generate::react::generate_react(&manifest, &output.to_string_lossy())?
+            ucp_synthesizer::generate::react::generate_react(&manifest, &output.to_string_lossy())?;
         }
         GeneratorTarget::Gpui => {
-            ucp_synthesizer::generate::gpui::generate_gpui(&manifest, &output.to_string_lossy())?
+            ucp_synthesizer::generate::gpui::generate_gpui(&manifest, &output.to_string_lossy())?;
         }
         GeneratorTarget::WebComponents => {
             ucp_synthesizer::generate::web_components::generate_web_components(
                 &manifest,
                 &output.to_string_lossy(),
-            )?
+            )?;
         }
         GeneratorTarget::ShadcnRegistry => ucp_synthesizer::generate::registry::generate_registry(
             &manifest,
@@ -419,7 +422,7 @@ fn cmd_generate(spec: &Path, target: &GeneratorTarget, output: &Path) -> anyhow:
     }
     println!(
         "Generated {} code in {}",
-        format!("{:?}", target).to_lowercase(),
+        format!("{target:?}").to_lowercase(),
         output.display()
     );
     Ok(())
@@ -442,7 +445,7 @@ fn cmd_export(
             &output.to_string_lossy(),
         )?,
         ExportTarget::AgUi => {
-            ucp_synthesizer::export::ag_ui::export_ag_ui(&synth, &output.to_string_lossy())?
+            ucp_synthesizer::export::ag_ui::export_ag_ui(&synth, &output.to_string_lossy())?;
         }
         ExportTarget::Dtcg => {
             let tokens = ucp_synthesizer::extract::tokens::extract_tokens_from_source(&content)?;
@@ -459,7 +462,7 @@ fn cmd_export(
             &output.to_string_lossy(),
         )?,
         ExportTarget::LlmsTxt => {
-            ucp_synthesizer::export::llms_txt::export_llms_txt(&synth, &output.to_string_lossy())?
+            ucp_synthesizer::export::llms_txt::export_llms_txt(&synth, &output.to_string_lossy())?;
         }
     }
     println!("Exported to {}", output.display());
@@ -520,10 +523,10 @@ fn cmd_dashboard(spec: &Path, output: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn cmd_mcp(spec: &Path) -> anyhow::Result<()> {
+fn cmd_mcp(spec: &Path) -> anyhow::Result<()> {
     let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
     let synth: SynthesisOutput = serde_json::from_str(&content).context("Invalid spec format")?;
-    ucp_synthesizer::contract::mcp_server::run_mcp_server(&synth).await?;
+    ucp_synthesizer::contract::mcp_server::run_mcp_server(&synth)?;
     Ok(())
 }
 
@@ -571,7 +574,7 @@ async fn cmd_bootstrap(
         eprintln!("Failed to launch watchexec: {err}");
         std::process::exit(1);
     }
-    println!("🔍 Scanning {}...", source_dir);
+    println!("🔍 Scanning {source_dir}...");
     let dry_run = ollama_url.is_none();
     let opts = ucp_synthesizer::pipeline::PipelineOptions {
         ollama_url,
@@ -604,7 +607,7 @@ fn cmd_validate(spec: &Path) -> anyhow::Result<()> {
         .map(|c| c.props.iter().filter(|p| !p.conflicts.is_empty()).count())
         .sum();
     if conflicts > 0 {
-        println!("\n⚠️  {} unresolved conflict(s).", conflicts);
+        println!("\n⚠️  {conflicts} unresolved conflict(s).");
     } else {
         println!("\n✅ Spec is valid with no conflicts.");
     }
@@ -638,15 +641,14 @@ fn cmd_components(
     spec: &Path,
     format: &str,
     verbose: bool,
-    filter: &Option<String>,
+    filter: Option<&str>,
 ) -> anyhow::Result<()> {
     let output = SynthesisOutput::load_from_file(spec)?;
-    let filter_re: Option<regex::Regex> =
-        filter.as_ref().map(|f| regex::Regex::new(f)).transpose()?;
+    let filter_re: Option<regex::Regex> = filter.map(regex::Regex::new).transpose()?;
     let components: Vec<&ucp_core::cam::CanonicalAbstractComponent> = output
         .components
         .iter()
-        .filter(|c| filter_re.as_ref().map_or(true, |re| re.is_match(&c.id)))
+        .filter(|c| filter_re.as_ref().is_none_or(|re| re.is_match(&c.id)))
         .collect();
     if format == "json" {
         println!("{}", serde_json::to_string_pretty(&components)?);
@@ -658,7 +660,7 @@ fn cmd_components(
     }
     for comp in &components {
         let name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
-        println!("  🧩 {}", name);
+        println!("  🧩 {name}");
         if verbose {
             for p in &comp.props {
                 println!("     - {}: {:?}", p.canonical_name, p.abstract_type);
@@ -717,7 +719,7 @@ fn cmd_diff(spec_a: &Path, spec_b: &Path, json: bool) -> anyhow::Result<()> {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         let text = diff_specs_text(&a, &b)?;
-        println!("{}", text);
+        println!("{text}");
     }
     Ok(())
 }
@@ -757,7 +759,7 @@ fn cmd_merge_tokens(
         for c in &result.conflicts {
             println!("  - {}:", c.key);
             for (src, val) in &c.values {
-                println!("      {}: {}", src, val);
+                println!("      {src}: {val}");
             }
         }
     }
@@ -795,10 +797,10 @@ async fn cmd_verify_spec(spec_path: &Path, source_dir: &Path) -> anyhow::Result<
             }
         }
         for comp in &report.missing_in_source {
-            println!("  - {} (in spec, missing from source)", comp);
+            println!("  - {comp} (in spec, missing from source)");
         }
         for comp in &report.new_in_source {
-            println!("  + {} (in source, not in spec)", comp);
+            println!("  + {comp} (in source, not in spec)");
         }
     }
 
@@ -818,7 +820,7 @@ fn cmd_registry_store(db: Option<PathBuf>, action: RegistryStoreAction) -> anyho
         RegistryStoreAction::Store { spec, name } => {
             let spec = SynthesisOutput::load_from_file(&spec)?;
             let id = store.store(&name, &spec).context("Failed to store spec")?;
-            println!("✅ Stored as ID {} (name: {})", id, name);
+            println!("✅ Stored as ID {id} (name: {name})");
         }
         RegistryStoreAction::List => {
             let items = store.list().context("Failed to list registry")?;
@@ -826,7 +828,7 @@ fn cmd_registry_store(db: Option<PathBuf>, action: RegistryStoreAction) -> anyho
                 println!("Registry is empty.");
             } else {
                 for (id, name) in &items {
-                    println!("  [{}] {}", id, name);
+                    println!("  [{id}] {name}");
                 }
             }
         }
@@ -835,14 +837,14 @@ fn cmd_registry_store(db: Option<PathBuf>, action: RegistryStoreAction) -> anyho
                 Some(spec) => {
                     println!("{}", serde_json::to_string_pretty(&spec)?);
                 }
-                None => println!("No spec with ID {}", id),
+                None => println!("No spec with ID {id}"),
             }
         }
         RegistryStoreAction::Delete { id } => {
             if store.delete(id).context("Failed to delete spec")? {
-                println!("✅ Deleted spec ID {}", id);
+                println!("✅ Deleted spec ID {id}");
             } else {
-                println!("No spec with ID {}", id);
+                println!("No spec with ID {id}");
             }
         }
     }
@@ -919,20 +921,4 @@ fn cmd_export_all(
     println!("   📁 registry/registry.json");
 
     Ok(())
-}
-
-async fn cmd_registry_serve(
-    spec_path: &Path,
-    port: u16,
-    _token: Option<String>,
-) -> anyhow::Result<()> {
-    let spec_str = std::fs::read_to_string(spec_path)
-        .with_context(|| format!("Failed to read spec file: {}", spec_path.display()))?;
-    let spec: ucp_synthesizer::pipeline::SynthesisOutput = serde_json::from_str(&spec_str)
-        .context("Failed to parse spec JSON")?;
-
-    if _token.is_some() {
-    }
-
-    ucp_maintainer::registry_server::run_registry_server_with_token(spec, port, _token).await
 }
