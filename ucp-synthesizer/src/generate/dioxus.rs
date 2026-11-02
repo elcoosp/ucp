@@ -4,13 +4,17 @@ use super::common::{
 use super::traits::{generate_with, CodeGenerator};
 use std::fs;
 use std::path::Path;
-use ucp_core::cam::*;
+use ucp_core::cam::{
+    AbstractPropType, AbstractReactivity, CanonicalAbstractComponent, CanonicalAbstractProp,
+    PackageManifest,
+};
 use ucp_core::Result;
 
+/// Generates Dioxus (Rust) component code from a manifest.
 pub struct DioxusGenerator;
 
 impl CodeGenerator for DioxusGenerator {
-    fn file_extension(&self) -> &str {
+    fn file_extension(&self) -> &'static str {
         "rs"
     }
 
@@ -20,7 +24,7 @@ impl CodeGenerator for DioxusGenerator {
 
     fn generate_component_code(&self, comp: &CanonicalAbstractComponent) -> String {
         let name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
-        let props_struct = format!("{}Props", name);
+        let props_struct = format!("{name}Props");
         let mut props_fields = Vec::new();
         let mut has_spread = false;
 
@@ -31,25 +35,23 @@ impl CodeGenerator for DioxusGenerator {
             if prop.abstract_type == AbstractPropType::SpreadAttributes {
                 has_spread = true;
                 props_fields.push(format!(
-                    "    #[props(extends = GlobalAttributes)]\n    pub {}: Vec<Attribute>,",
-                    field_name
+                    "    #[props(extends = GlobalAttributes)]\n    pub {field_name}: Vec<Attribute>,"
                 ));
                 continue;
             }
             if prop.abstract_type == AbstractPropType::Renderable {
-                props_fields.push(format!("    pub {}: Element,", field_name));
+                props_fields.push(format!("    pub {field_name}: Element,"));
                 continue;
             }
             if let AbstractPropType::AsyncEventHandler(_) = &prop.abstract_type {
                 props_fields.push(format!(
-                    "    pub {}: Option<EventHandler<MouseEvent>>,",
-                    field_name
+                    "    pub {field_name}: Option<EventHandler<MouseEvent>>,"
                 ));
                 continue;
             }
             if let AbstractPropType::ControlledValue(inner) = &prop.abstract_type {
                 let inner_type = abstract_to_rust_type(inner);
-                props_fields.push(format!("    pub {}: Signal<{}>,", field_name, inner_type));
+                props_fields.push(format!("    pub {field_name}: Signal<{inner_type}>,"));
                 continue;
             }
 
@@ -60,15 +62,12 @@ impl CodeGenerator for DioxusGenerator {
             } else {
                 ""
             };
-            props_fields.push(format!(
-                "    {}{}: {},",
-                default_attr, field_name, rust_type
-            ));
+            props_fields.push(format!("    {default_attr}{field_name}: {rust_type},"));
         }
 
         let props_derive = generate_props_derive(has_spread);
         format!(
-            r#"use dioxus::prelude::*;
+            r"use dioxus::prelude::*;
 
 {props_derive}
 pub struct {props_struct} {{
@@ -82,7 +81,7 @@ pub fn {name}(props: {props_struct}) -> Element {{
         div {{ }}
     }}
 }}
-"#,
+",
             props_body = props_fields.join("\n"),
         )
     }
@@ -98,11 +97,19 @@ pub fn {name}(props: {props_struct}) -> Element {{
     }
 }
 
+/// Generate a full Dioxus component library into `output_dir`.
+///
+/// Writes one `.rs` file per component plus a `Cargo.toml`.
+///
+/// # Errors
+///
+/// Errors on file-create or file-write failures.
 pub fn generate_dioxus(manifest: &PackageManifest, output_dir: &str) -> Result<()> {
     generate_with(manifest, output_dir, &DioxusGenerator)
 }
 
-/// Public helper for the registry generator (which doesn't implement CodeGenerator).
+/// Public helper for the registry generator (which doesn't implement `CodeGenerator`).
+#[must_use]
 pub fn generate_component_code_for_registry(comp: &CanonicalAbstractComponent) -> String {
     DioxusGenerator.generate_component_code(comp)
 }
