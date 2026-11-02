@@ -1,7 +1,6 @@
 //! Backward-compatibility tests against v0.9.0 spec fixtures.
 use tempfile::TempDir;
 use ucp_core::cam::*;
-use ucp_synthesizer::contract::mcp_server::generate_server_json;
 use ucp_synthesizer::export::design_md::export_design_md;
 use ucp_synthesizer::export::llms_txt::export_llms_txt;
 use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
@@ -44,7 +43,7 @@ fn v090_llms_txt_export() {
             files_parsed: 1,
             components_found: 1,
             conflicts_detected: 0,
-            llm_enriched: false,
+            cache_hits: 0,
         },
     };
     export_llms_txt(&output, &tmp.path().to_string_lossy()).unwrap();
@@ -64,7 +63,7 @@ fn v090_design_md_v1_export() {
             files_parsed: 1,
             components_found: 1,
             conflicts_detected: 0,
-            llm_enriched: false,
+            cache_hits: 0,
         },
     };
     export_design_md(
@@ -77,13 +76,4 @@ fn v090_design_md_v1_export() {
     .unwrap();
     let content = std::fs::read_to_string(tmp.path().join("DESIGN.md")).unwrap();
     assert!(content.contains("title: test-lib"));
-}
-
-#[test]
-fn v090_mcp_server_json() {
-    let tmp = TempDir::new().unwrap();
-    generate_server_json("test-server", "Test MCP", &tmp.path().to_string_lossy()).unwrap();
-    let content = std::fs::read_to_string(tmp.path().join("server.json")).unwrap();
-    assert!(content.contains("test-server"));
-    assert!(content.contains("tools"));
 }
