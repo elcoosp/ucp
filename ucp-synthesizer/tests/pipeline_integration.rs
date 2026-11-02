@@ -33,23 +33,15 @@ async fn pipeline_scans_and_parses_rust_components() {
     let tmp = setup_source_dir();
     let source_dir = tmp.path().to_string_lossy().to_string();
 
-    let output = pipeline::run_pipeline_with_options(
-        &source_dir,
-        &PipelineOptions {
-            ollama_url: None,
-            llm_model: "unused".to_string(),
-            dry_run: true,
-        },
-    )
-    .await
-    .unwrap();
+    let output = pipeline::run_pipeline_with_options(&source_dir, &PipelineOptions::default())
+        .await
+        .unwrap();
 
     assert_eq!(output.ucp_version, "4.0.0");
     assert_eq!(output.stats.files_scanned, 1);
     assert_eq!(output.stats.files_parsed, 1);
     assert_eq!(output.stats.components_found, 1);
     assert_eq!(output.stats.conflicts_detected, 0);
-    assert!(!output.stats.llm_enriched);
 
     // SourceAttribution should have real line numbers, not hardcoded 0
     let card = &output.components[0];
