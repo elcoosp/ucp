@@ -1,6 +1,7 @@
+//! Tests for the function-style Rust extractor.
 use ucp_synthesizer::extract::rust_ast::extract_rust_components;
 
-const MOCK_LEPTOS_BUTTON: &str = r#"
+const MOCK_LEPTOS_BUTTON: &str = r"
 #[component]
 pub fn Button(
     #[prop(into)] variant: MaybeSignal<String>,
@@ -8,7 +9,7 @@ pub fn Button(
 ) -> impl IntoView {
     view! { <button>{}</button> }
 }
-"#;
+";
 
 #[test]
 fn extract_props_using_visitor_trait() {
