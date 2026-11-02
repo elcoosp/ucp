@@ -16,6 +16,7 @@ regex = "1.13.1"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
+tempfile = "3.27.0"
 
 [lints]
 workspace = true
