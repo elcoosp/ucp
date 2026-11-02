@@ -4,23 +4,36 @@ use std::fs;
 use std::path::Path;
 use ucp_core::Result;
 
+/// AG-UI protocol document: a flat list of UI events.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgUiSchema {
-    pub protocol: String, // "ag-ui/v1"
+    /// Protocol identifier (`ag-ui/v1`).
+    pub protocol: String,
+    /// All events declared by the synthesized components.
     pub events: Vec<AgUiEvent>,
 }
 
+/// One AG-UI event declaration.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgUiEvent {
+    /// Component the event belongs to.
     pub component: String,
+    /// Event name as declared in source.
     pub event: String,
-    pub event_type: String, // e.g., "component.click"
+    /// Namespaced event type (`component.<name>`).
+    pub event_type: String,
+    /// Debug rendering of the abstract payload type, when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload: Option<String>,
 }
 
+/// Write the spec's events as an `ag-ui.json` document.
+///
+/// # Errors
+///
+/// Errors on JSON serialization or file-write failures.
 pub fn export_ag_ui(spec: &SynthesisOutput, output_dir: &str) -> Result<()> {
     let dir = Path::new(output_dir);
     fs::create_dir_all(dir).map_err(ucp_core::UcpError::Io)?;
