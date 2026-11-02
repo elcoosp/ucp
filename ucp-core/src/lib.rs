@@ -14,7 +14,9 @@
 
 pub mod cam;
 pub mod error;
+pub mod naming;
 pub mod smdl;
+pub mod validation;
 
 pub use error::{Result, UcpError};
 
