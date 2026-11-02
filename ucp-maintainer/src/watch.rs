@@ -1,16 +1,20 @@
 //! File‑system watcher that continuously rebuilds specs on source changes.
 
 use anyhow::Context;
-use notify::{Event, EventKind, RecursiveMode, Watcher, Config};
+use notify::{Config, Event, EventKind, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::mpsc::channel;
-use ucp_synthesizer::pipeline::{PipelineOptions, SynthesisOutput};
 use ucp_synthesizer::merge::MergeOptions;
+use ucp_synthesizer::pipeline::{PipelineOptions, SynthesisOutput};
 
 /// Run a continuous watch loop that re‑extracts, re‑merges (if a base spec is given),
 /// and re‑exports whenever source files change.
 /// Run a continuous watch loop that re‑extracts, re‑merges, and re‑exports
 /// whenever source files change.
+/// # Errors
+///
+/// Errors when the source directory cannot be watched or a re-synthesis
+/// pass fails.
 pub async fn run_watch(
     source_dir: &str,
     base_spec_path: Option<&Path>,
@@ -25,9 +29,7 @@ pub async fn run_watch(
         if let Ok(event) = res {
             // Only trigger on meaningful file changes (create, write, remove)
             match event.kind {
-                EventKind::Create(_)
-                | EventKind::Modify(_)
-                | EventKind::Remove(_) => {
+                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
                     let _ = tx.send(());
                 }
                 _ => {}
@@ -35,10 +37,12 @@ pub async fn run_watch(
         }
     })?;
 
-    watcher.configure(Config::default().with_poll_interval(std::time::Duration::from_millis(debounce_ms)))?;
+    watcher.configure(
+        Config::default().with_poll_interval(std::time::Duration::from_millis(debounce_ms)),
+    )?;
     watcher.watch(Path::new(source_dir), RecursiveMode::Recursive)?;
 
-    println!("👀 Watching {} for changes...", source_dir);
+    println!("👀 Watching {source_dir} for changes...");
     println!("   Output directory: {}", output_dir.display());
     if let Some(base) = base_spec_path {
         println!("   Base spec: {}", base.display());
@@ -74,19 +78,19 @@ pub async fn run_watch(
                                 Ok(merged) => {
                                     // Save back to the base spec path
                                     if let Err(e) = merged.save_to_file(base_path) {
-                                        eprintln!("⚠️  Failed to save merged spec: {}", e);
+                                        eprintln!("⚠️  Failed to save merged spec: {e}");
                                         continue;
                                     }
                                     merged
                                 }
                                 Err(e) => {
-                                    eprintln!("⚠️  Merge failed: {}", e);
+                                    eprintln!("⚠️  Merge failed: {e}");
                                     continue;
                                 }
                             }
                         }
                         Err(e) => {
-                            eprintln!("⚠️  Failed to load base spec: {}", e);
+                            eprintln!("⚠️  Failed to load base spec: {e}");
                             continue;
                         }
                     }
@@ -94,7 +98,7 @@ pub async fn run_watch(
                     // No base spec — just save the fresh extraction
                     let output_path = output_dir.join("ucp-spec.json");
                     if let Err(e) = fresh_spec.save_to_file(&output_path) {
-                        eprintln!("⚠️  Failed to save spec: {}", e);
+                        eprintln!("⚠️  Failed to save spec: {e}");
                         continue;
                     }
                     fresh_spec
@@ -102,14 +106,17 @@ pub async fn run_watch(
 
                 // Export all formats
                 if let Err(e) = export_all_formats(&final_spec, output_dir, library, version) {
-                    eprintln!("⚠️  Export failed: {}", e);
+                    eprintln!("⚠️  Export failed: {e}");
                     continue;
                 }
 
-                println!("✅ Rebuild complete – {} components", final_spec.components.len());
+                println!(
+                    "✅ Rebuild complete – {} components",
+                    final_spec.components.len()
+                );
             }
             Err(e) => {
-                eprintln!("⚠️  Extraction failed: {}", e);
+                eprintln!("⚠️  Extraction failed: {e}");
             }
         }
     }
@@ -124,15 +131,41 @@ fn export_all_formats(
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(output_dir)?;
 
-    ucp_synthesizer::export::a2ui::export_a2ui(spec, library, version, &output_dir.join("a2ui").to_string_lossy())?;
-    ucp_synthesizer::export::ag_ui::export_ag_ui(spec, &output_dir.join("ag-ui").to_string_lossy())?;
+    ucp_synthesizer::export::a2ui::export_a2ui(
+        spec,
+        library,
+        version,
+        &output_dir.join("a2ui").to_string_lossy(),
+    )?;
+    ucp_synthesizer::export::ag_ui::export_ag_ui(
+        spec,
+        &output_dir.join("ag-ui").to_string_lossy(),
+    )?;
     ucp_synthesizer::export::w3c::export_w3c(spec, &output_dir.join("w3c").to_string_lossy())?;
-    ucp_synthesizer::export::design_md::export_design_md(spec, None, library, version, &output_dir.join("design-md").to_string_lossy())?;
-    ucp_synthesizer::export::llms_txt::export_llms_txt(spec, &output_dir.join("llms-txt").to_string_lossy())?;
-    ucp_synthesizer::contract::ai_contract::export_ai_contract(spec, &output_dir.join("ai-contract.json").to_string_lossy())?;
+    ucp_synthesizer::export::design_md::export_design_md(
+        spec,
+        None,
+        library,
+        version,
+        &output_dir.join("design-md").to_string_lossy(),
+    )?;
+    ucp_synthesizer::export::llms_txt::export_llms_txt(
+        spec,
+        &output_dir.join("llms-txt").to_string_lossy(),
+    )?;
+    ucp_synthesizer::contract::ai_contract::export_ai_contract(
+        spec,
+        &output_dir.join("ai-contract.json").to_string_lossy(),
+    )?;
 
     let manifest = spec.to_package_manifest(library, version, vec!["dioxus".into()]);
-    ucp_synthesizer::generate::registry::generate_registry(&manifest, &output_dir.join("registry").to_string_lossy(), None, None, None)?;
+    ucp_synthesizer::generate::registry::generate_registry(
+        &manifest,
+        &output_dir.join("registry").to_string_lossy(),
+        None,
+        None,
+        None,
+    )?;
 
     Ok(())
 }
