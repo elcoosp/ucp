@@ -1,4 +1,49 @@
 ## [Unreleased]
+
+### 0.13.0 — "Static analysis is the product"
+
+This release turns UCP from an AI-buzzword shell into a working deterministic
+API-drift detector. The flagship promise — unify the same component across framework
+ports — now actually works.
+
+#### Fixed
+- **TSX extractor rewritten around a real lexer** (strings, comments, `=>` as one
+  token). The 0.12 line-heuristic scanner went angle-bracket-negative on inline
+  callback types and silently swallowed every prop declared after them.
+- **TypeScript type ontology**: `boolean`/`true`/`false` map to `controlFlag`,
+  `string`/`number` to static values, string-literal unions keep their concrete
+  members, `T[]` suffix arrays and `React.*` namespaced types are recognized. In 0.12
+  all of these collapsed to `any`.
+- **Cross-framework merge works**: fingerprints now hash the normalized component
+  name; props unify across naming conventions (`onClick` = `on_click`), and prop-set
+  differences surface as presence-drift conflicts (`drift_NNN`) instead of producing
+  two parallel `unified:Button` components with zero findings.
+- Event names derive through the same normalization (`onOpenChange` → `openchange`).
+
+#### Added
+- `ucp validate` performs structural validation (duplicate ids, empty prop names,
+  out-of-range confidences, prop-less components), prints `--json` reports, and exits
+  non-zero on blocking issues — CI-ready.
+- `--json` machine-readable summaries for `bootstrap` and `merge`.
+- Incremental parse cache keyed by `(mtime, size)`: watch/CI re-runs re-parse only
+  changed files (`stats.cache_hits` reports hits; serialized raw extractions are
+  byte-identical to fresh parses).
+- Criterion benches for the tokenizer, the end-to-end pipeline (cold vs cached), and
+  the merge path (`cargo bench -p ucp-synthesizer`).
+- `TRANSFORMATION.md` documents the audit and the redesign decisions.
+
+#### Removed
+- Ollama LLM enrichment (it mutated semantic fingerprints from LLM output, breaking
+  determinism), the GitHub discovery agent (`octocrab`), the MCP server, the "AI
+  contract" exporter, the HTML dashboard, the A2UI and AG-UI exporters, and the fake
+  one-line `review.html`. The dependency tree lost `octocrab`, `reqwest`, `spdx`, and
+  `askama`.
+- CLI flags `--ollama-url`, `--llm-model`, bootstrap `--watch` (use `ucp watch`).
+
+#### Compatibility
+- Spec JSON field names are unchanged; 0.12 specs load fine. `purpose_hash` values
+  changed (normalization is the point) and `stats` gained serde-defaulted fields.
+
 ### 🐛 Bug Fixes
 - Remove duplicate doc-test recipe from justfile
 - Set mdBook source directory to docs/ root
