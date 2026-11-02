@@ -48,8 +48,10 @@ When merging, components with the same semantic fingerprint are compared.
 Props with different abstract types across sources are flagged as conflicts.
 See [Merge Algorithm](merge-algorithm.md) for details.
 
-### LLM Enrichment
+### Incremental Cache
 
-If an Ollama URL is provided, the pipeline sends component source code
-to the LLM with a prompt asking for a description, SMDL state machine,
-and keywords. The response is parsed into `EnrichmentResponse`.
+When `PipelineOptions.cache_path` is set, each file's raw extractions are cached
+keyed by `(mtime_ns, size)`. Unchanged files skip the parser entirely on re-runs
+(watch mode and CI), and `stats.cache_hits` reports how many files were served from
+cache. Cache load failures fall back to full parsing — the cache is best-effort by
+design.
