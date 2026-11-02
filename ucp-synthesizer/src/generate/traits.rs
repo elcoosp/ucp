@@ -1,7 +1,7 @@
 use super::common::to_snake_case;
 use std::fs;
 use std::path::Path;
-use ucp_core::cam::*;
+use ucp_core::cam::{CanonicalAbstractComponent, CanonicalAbstractProp, PackageManifest};
 use ucp_core::Result;
 
 /// A trait for generating framework‑specific component code.
@@ -16,10 +16,18 @@ pub trait CodeGenerator {
     fn generate_component_code(&self, comp: &CanonicalAbstractComponent) -> String;
 
     /// Write the project configuration files (Cargo.toml, package.json, etc.).
+    /// Write per-project scaffolding (`Cargo.toml`, docs, ...) into `dir`.
+    ///
+    /// # Errors
+    ///
+    /// Errors when any project file cannot be written.
     fn write_project_files(&self, manifest: &PackageManifest, dir: &Path) -> Result<()>;
 }
 
 /// Shared scaffold: create output directory, iterate components, write files.
+/// # Errors
+///
+/// Errors when component code or project files cannot be written.
 pub fn generate_with<G: CodeGenerator>(
     manifest: &PackageManifest,
     output_dir: &str,
