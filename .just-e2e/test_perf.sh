@@ -23,7 +23,7 @@ START=$(date +%s%N)
 END=$(date +%s%N)
 echo "  Pipeline ran in $((END - START)) seconds"
 grep -q "Components:.*200" /tmp/perf-out.txt || { echo "FAIL: expected 200 components"; exit 1; }
-grep -q "Files parsed:    200" /tmp/perf-out.txt || { echo "FAIL: expected files_parsed: 200"; exit 1; }
+grep -q "Files parsed:  200" /tmp/perf-out.txt || { echo "FAIL: expected files_parsed: 200"; exit 1; }
 
 echo "Performance test passed."
 cleanup
