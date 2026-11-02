@@ -2,19 +2,31 @@
 use serde::{Deserialize, Serialize};
 use ucp_core::Result;
 
+/// A GitHub repository discovered by the search agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredRepo {
+    /// `owner/name` as returned by the GitHub search API.
     pub full_name: String,
+    /// Absolute HTTPS URL of the repository.
     pub html_url: String,
+    /// SPDX license identifier when the repo declares one.
     pub spdx_id: Option<String>,
 }
 
+/// Search GitHub for shadcn-like component libraries.
+///
+/// `base_url` allows pointing at a GitHub Enterprise instance.
+///
+/// # Errors
+///
+/// Errors when the octocrab client cannot be built or the search request
+/// fails (auth, rate limits, network).
 pub async fn find_shadcn_repos(query: &str, base_url: &str) -> Result<Vec<DiscoveredRepo>> {
     let octo = octocrab::Octocrab::builder()
         .base_uri(base_url.trim_end_matches('/'))
-        .map_err(|e| ucp_core::UcpError::Http(format!("Failed to set base URI: {}", e)))?
+        .map_err(|e| ucp_core::UcpError::Http(format!("Failed to set base URI: {e}")))?
         .build()
-        .map_err(|e| ucp_core::UcpError::Http(format!("Failed to build octocrab client: {}", e)))?;
+        .map_err(|e| ucp_core::UcpError::Http(format!("Failed to build octocrab client: {e}")))?;
 
     let page = octo
         .search()
@@ -22,7 +34,7 @@ pub async fn find_shadcn_repos(query: &str, base_url: &str) -> Result<Vec<Discov
         .per_page(10)
         .send()
         .await
-        .map_err(|e| ucp_core::UcpError::Http(format!("GitHub API request failed: {}", e)))?;
+        .map_err(|e| ucp_core::UcpError::Http(format!("GitHub API request failed: {e}")))?;
 
     Ok(page
         .items
