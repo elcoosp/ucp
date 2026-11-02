@@ -18,12 +18,50 @@ pub fn map_raw_type_to_cam(raw_type: &str) -> Result<AbstractPropType> {
 ///
 /// The mapping is recursive: wrappers like `Option<Signal<String>>` unwrap
 /// layer by layer, combining reactivity wrappers with their payload type.
+/// TypeScript spellings are first-class: `boolean`/`true`/`false` map to
+/// [`AbstractPropType::ControlFlag`], `string`/`number` to static values,
+/// suffix arrays (`string[]`) to list shapes, `React.`-namespaced types are
+/// recognized without the namespace, and unions drop `null`/`undefined`
+/// alternatives before re-mapping the remainder (a union of string literals
+/// becomes a static value whose concrete type is the normalized union).
 ///
 /// # Errors
 ///
 /// Never fails today; see [`map_raw_type_to_cam`].
 pub fn map_raw_type_with_concrete(raw_type: &str) -> Result<(AbstractPropType, Option<String>)> {
-    let clean = raw_type.replace(' ', "");
+    let mut clean = raw_type.replace(' ', "");
+    if let Some(stripped) = clean.strip_prefix("React.") {
+        clean = stripped.to_string();
+    }
+
+    // 0. Top-level unions: strip nullable alternatives, then re-map.
+    if let Some(alternatives) = split_top_level_union(&clean) {
+        let kept: Vec<&str> = alternatives
+            .iter()
+            .map(String::as_str)
+            .filter(|a| !matches!(*a, "null" | "undefined"))
+            .collect();
+        match kept.len() {
+            0 => return Ok((AbstractPropType::Any, None)),
+            1 => return map_raw_type_with_concrete(kept[0]),
+            _ => {
+                let concrete = kept.join("|");
+                return Ok((
+                    AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
+                    Some(concrete),
+                ));
+            }
+        }
+    }
+
+    // 0b. TypeScript suffix arrays: `T[]` is the same shape as `Array<T>`.
+    if let Some(inner) = clean.strip_suffix("[]") {
+        let (inner_abs, inner_conc) = map_raw_type_with_concrete(inner)?;
+        return Ok((
+            AbstractPropType::StaticValue(Box::new(inner_abs)),
+            inner_conc.map(|c| format!("Vec<{c}>")),
+        ));
+    }
 
     // 1. Generic reactivity wrappers unwrap recursively.
     if let Some((wrapper, inner)) = split_generic(&clean) {
@@ -64,21 +102,27 @@ pub fn map_raw_type_with_concrete(raw_type: &str) -> Result<(AbstractPropType, O
         ));
     }
 
-    // 5. Primitives and simple scalar shapes.
+    // 5. Primitives and simple scalar shapes (Rust and TypeScript).
     match clean.as_str() {
-        "bool" => return Ok((AbstractPropType::ControlFlag, Some("bool".to_string()))),
-        "String" | "&str" | "SharedString" | "Cow<str>" => {
+        "bool" | "boolean" | "true" | "false" => {
+            return Ok((AbstractPropType::ControlFlag, Some("bool".to_string())));
+        }
+        "String" | "string" | "&str" | "SharedString" | "Cow<str>" => {
             return Ok((
                 AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
                 Some("String".to_string()),
             ));
         }
         "usize" | "isize" | "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "f32"
-        | "f64" => {
+        | "f64" | "number" | "bigint" => {
             return Ok((
                 AbstractPropType::StaticValue(Box::new(AbstractPropType::Any)),
                 Some(clean.clone()),
             ));
+        }
+        // TS bottom/unknown shapes carry no useful abstraction.
+        "unknown" | "any" | "object" | "null" | "undefined" | "void" | "never" => {
+            return Ok((AbstractPropType::Any, Some(clean)));
         }
         _ => {}
     }
@@ -95,6 +139,66 @@ pub fn map_raw_type_with_concrete(raw_type: &str) -> Result<(AbstractPropType, O
     }
 
     Ok((AbstractPropType::Any, Some(clean)))
+}
+
+/// Split a top-level union type into its alternatives.
+///
+/// Returns `None` when `s` contains no union operator at nesting depth zero;
+/// `|` operators inside generics, parentheses, brackets, or string literals
+/// do not split. Input is expected to be whitespace-free.
+fn split_top_level_union(s: &str) -> Option<Vec<String>> {
+    let mut depth_angle = 0i32;
+    let mut depth_paren = 0i32;
+    let mut depth_bracket = 0i32;
+    let mut in_string = false;
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut found = false;
+
+    for c in s.chars() {
+        match c {
+            '"' => {
+                in_string = !in_string;
+                current.push(c);
+            }
+            '|' if !in_string && depth_angle == 0 && depth_paren == 0 && depth_bracket == 0 => {
+                found = true;
+                parts.push(std::mem::take(&mut current));
+            }
+            '<' if !in_string => {
+                depth_angle += 1;
+                current.push(c);
+            }
+            '>' if !in_string => {
+                depth_angle -= 1;
+                current.push(c);
+            }
+            '(' if !in_string => {
+                depth_paren += 1;
+                current.push(c);
+            }
+            ')' if !in_string => {
+                depth_paren -= 1;
+                current.push(c);
+            }
+            '[' if !in_string => {
+                depth_bracket += 1;
+                current.push(c);
+            }
+            ']' if !in_string => {
+                depth_bracket -= 1;
+                current.push(c);
+            }
+            _ => current.push(c),
+        }
+    }
+    parts.push(current);
+
+    if found {
+        Some(parts)
+    } else {
+        None
+    }
 }
 
 /// If `s` has the shape `Wrapper<inner>`, return `(Wrapper, inner)`.
@@ -325,5 +429,123 @@ mod tests {
                 "{ty} should be an event handler"
             );
         }
+    }
+
+    // -------------------------------------------------------------------
+    // TypeScript ontology (0.13.0)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn ts_boolean_is_control_flag() {
+        assert_eq!(
+            map_raw_type_to_cam("boolean").unwrap(),
+            AbstractPropType::ControlFlag
+        );
+        assert_eq!(
+            map_raw_type_to_cam("true").unwrap(),
+            AbstractPropType::ControlFlag
+        );
+        assert_eq!(
+            map_raw_type_to_cam("false").unwrap(),
+            AbstractPropType::ControlFlag
+        );
+    }
+
+    #[test]
+    fn ts_string_and_number_are_static_values() {
+        let (abs, conc) = map_raw_type_with_concrete("string").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
+        assert_eq!(conc.as_deref(), Some("String"));
+        let (abs, conc) = map_raw_type_with_concrete("number").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
+        assert_eq!(conc.as_deref(), Some("number"));
+    }
+
+    #[test]
+    fn ts_string_literal_union_is_static_value_with_enum_concrete() {
+        let (abs, conc) =
+            map_raw_type_with_concrete("\"default\" | \"destructive\" | \"outline\"").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
+        assert_eq!(
+            conc.as_deref(),
+            Some("\"default\"|\"destructive\"|\"outline\"")
+        );
+    }
+
+    #[test]
+    fn ts_nullable_union_strips_null_and_undefined() {
+        let (abs, conc) = map_raw_type_with_concrete("string | undefined").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
+        assert_eq!(conc.as_deref(), Some("String"));
+
+        let (abs, _) = map_raw_type_with_concrete("boolean | null").unwrap();
+        assert_eq!(abs, AbstractPropType::ControlFlag);
+
+        let (abs, _) = map_raw_type_with_concrete("number | null | undefined").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
+    }
+
+    #[test]
+    fn ts_suffix_array_maps_to_static_list() {
+        let (abs, conc) = map_raw_type_with_concrete("string[]").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
+        assert_eq!(conc.as_deref(), Some("Vec<String>"));
+
+        let (abs, _) = map_raw_type_with_concrete("number[]").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
+    }
+
+    #[test]
+    fn ts_react_namespace_is_stripped_for_known_types() {
+        assert_eq!(
+            map_raw_type_to_cam("React.ReactNode").unwrap(),
+            AbstractPropType::Renderable
+        );
+        assert_eq!(
+            map_raw_type_to_cam("React.ReactElement").unwrap(),
+            AbstractPropType::Renderable
+        );
+        assert!(matches!(
+            map_raw_type_to_cam("React.MouseEvent").unwrap(),
+            AbstractPropType::StaticValue(_)
+        ));
+        assert!(matches!(
+            map_raw_type_to_cam("React.CSSProperties").unwrap(),
+            AbstractPropType::StaticValue(_)
+        ));
+    }
+
+    #[test]
+    fn ts_arrow_callback_is_event_handler() {
+        let cam = map_raw_type_to_cam("(e: React.MouseEvent) => void").unwrap();
+        assert!(matches!(cam, AbstractPropType::AsyncEventHandler(_)));
+        let cam = map_raw_type_to_cam("(open: boolean) => void").unwrap();
+        assert!(matches!(cam, AbstractPropType::AsyncEventHandler(_)));
+    }
+
+    #[test]
+    fn ts_bottom_types_are_any() {
+        for ty in [
+            "unknown",
+            "any",
+            "object",
+            "null",
+            "undefined",
+            "void",
+            "never",
+        ] {
+            assert_eq!(
+                map_raw_type_to_cam(ty).unwrap(),
+                AbstractPropType::Any,
+                "{ty} should map to Any"
+            );
+        }
+    }
+
+    #[test]
+    fn ts_promise_wrapped_payload_is_static() {
+        // Async payloads appear on data props; the CAM keeps the static shape.
+        let (abs, _) = map_raw_type_with_concrete("Promise<string>").unwrap();
+        assert!(matches!(abs, AbstractPropType::StaticValue(_)));
     }
 }
