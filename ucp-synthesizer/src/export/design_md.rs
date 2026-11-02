@@ -315,7 +315,7 @@ mod tests {
                 files_parsed: 1,
                 components_found: 1,
                 conflicts_detected: 0,
-                llm_enriched: false,
+                cache_hits: 0,
             },
         };
         export_design_md(
