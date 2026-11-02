@@ -34,7 +34,7 @@ fn make_spec(id: &str, prop_type: AbstractPropType) -> SynthesisOutput {
             files_parsed: 1,
             components_found: 1,
             conflicts_detected: 0,
-            llm_enriched: false,
+            cache_hits: 0,
         },
         provenance: None,
         curation_log: None,
