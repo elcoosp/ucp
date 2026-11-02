@@ -1,6 +1,7 @@
+//! Tests for the Dioxus-specific raw extractor.
 use ucp_synthesizer::extract::rust_ast::extract_rust_components;
 
-const DIOXUS_BUTTON: &str = r#"
+const DIOXUS_BUTTON: &str = r"
 #[derive(Props)]
 pub struct ButtonProps {
     #[props(default)]
@@ -15,7 +16,7 @@ pub struct ButtonProps {
 pub fn Button(props: ButtonProps) -> Element {
     rsx! { <button>{props.label}</button> }
 }
-"#;
+";
 
 #[test]
 fn dioxus_component_extracts_props_and_spread() {
