@@ -62,8 +62,11 @@ pub async fn run_watch(
         println!();
         println!("🔄 Change detected – rebuilding...");
 
-        // Run the extraction pipeline
-        let opts = PipelineOptions::default();
+        // Run the extraction pipeline; the incremental cache makes
+        // re-runs proportional to what changed, not to repo size.
+        let opts = PipelineOptions {
+            cache_path: Some(output_dir.join(".ucp-cache.json")),
+        };
         match ucp_synthesizer::pipeline::run_pipeline_with_options(source_dir, &opts).await {
             Ok(fresh_spec) => {
                 // If a base spec is provided, do an incremental merge
@@ -131,16 +134,6 @@ fn export_all_formats(
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(output_dir)?;
 
-    ucp_synthesizer::export::a2ui::export_a2ui(
-        spec,
-        library,
-        version,
-        &output_dir.join("a2ui").to_string_lossy(),
-    )?;
-    ucp_synthesizer::export::ag_ui::export_ag_ui(
-        spec,
-        &output_dir.join("ag-ui").to_string_lossy(),
-    )?;
     ucp_synthesizer::export::w3c::export_w3c(spec, &output_dir.join("w3c").to_string_lossy())?;
     ucp_synthesizer::export::design_md::export_design_md(
         spec,
@@ -153,11 +146,6 @@ fn export_all_formats(
         spec,
         &output_dir.join("llms-txt").to_string_lossy(),
     )?;
-    ucp_synthesizer::contract::ai_contract::export_ai_contract(
-        spec,
-        &output_dir.join("ai-contract.json").to_string_lossy(),
-    )?;
-
     let manifest = spec.to_package_manifest(library, version, vec!["dioxus".into()]);
     ucp_synthesizer::generate::registry::generate_registry(
         &manifest,
