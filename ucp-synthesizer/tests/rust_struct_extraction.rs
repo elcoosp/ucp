@@ -1,6 +1,7 @@
+//! Tests for the struct/props-style Rust extractor.
 use ucp_synthesizer::extract::rust_ast::StructComponentVisitor;
 
-const STANDARDIZED_BUTTON_SRC: &str = r#"
+const STANDARDIZED_BUTTON_SRC: &str = r"
 use leptos_shadcn_api_standards::*;
 
 pub struct StandardizedButtonProps {
@@ -19,7 +20,7 @@ impl StandardizedButton {
         view! { <button>{}</button> }
     }
 }
-"#;
+";
 
 #[test]
 fn extract_standardized_button_component() {
@@ -46,47 +47,47 @@ fn extract_standardized_button_component() {
 
 #[test]
 fn ignore_non_props_struct() {
-    let c = StructComponentVisitor::extract(r#"pub struct WidgetConfig { pub w: u32 }"#).unwrap();
+    let c = StructComponentVisitor::extract(r"pub struct WidgetConfig { pub w: u32 }").unwrap();
     assert!(c.is_empty());
 }
 
 #[test]
 fn skip_props_struct_without_render() {
-    let c = StructComponentVisitor::extract(r#"pub struct OrphanProps { pub d: String }"#).unwrap();
+    let c = StructComponentVisitor::extract(r"pub struct OrphanProps { pub d: String }").unwrap();
     assert!(c.is_empty());
 }
 
 #[test]
 fn extract_multiple_components() {
-    let src = r#"
+    let src = r"
 pub struct ButtonProps { pub l: String }
 pub struct Button;
 impl Button { pub fn render(props: ButtonProps) -> impl IntoView { view! { <button/> } } }
 pub struct InputProps { pub p: String }
 pub struct Input;
 impl Input { pub fn render(props: InputProps) -> impl IntoView { view! { <input/> } } }
-"#;
+";
     let c = StructComponentVisitor::extract(src).unwrap();
     assert_eq!(c.len(), 2);
 }
 
 #[test]
 fn skip_zero_param_render() {
-    let src = r#"
+    let src = r"
 pub struct BadProps { pub l: String }
 pub struct Bad;
 impl Bad { pub fn render() -> impl IntoView { view! { <div/> } } }
-"#;
+";
     let c = StructComponentVisitor::extract(src).unwrap();
     assert!(c.is_empty());
 }
 
 #[test]
 fn struct_visitor_ignores_component_fn() {
-    let src = r#"
+    let src = r"
 #[component]
 pub fn Button(#[prop(default)] disabled: bool) -> impl IntoView { view! { <button/> } }
-"#;
+";
     let c = StructComponentVisitor::extract(src).unwrap();
     assert!(c.is_empty());
 }
