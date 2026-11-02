@@ -1,9 +1,11 @@
 use crate::extract::tokens::DtcgTokens;
 use crate::pipeline::SynthesisOutput;
+use std::fmt::Write as _;
+
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use ucp_core::cam::*;
+use ucp_core::cam::{AbstractReactivity, CanonicalAbstractComponent};
 use ucp_core::Result;
 
 /// DESIGN.md YAML front matter for v1.0 spec.
@@ -54,6 +56,14 @@ struct BreakpointToken {
     description: Option<String>,
 }
 
+/// Write the spec back out as a DESIGN.md document.
+///
+/// Produces YAML front matter (title, tokens) plus one Markdown section
+/// per component with props/events tables, mirroring the importer.
+///
+/// # Errors
+///
+/// Errors on file-create or file-write failures.
 pub fn export_design_md(
     spec: &SynthesisOutput,
     tokens: Option<&DtcgTokens>,
@@ -68,7 +78,7 @@ pub fn export_design_md(
 
     let front_matter = DesignMdFrontMatter {
         title: library_name.to_string(),
-        description: Some(format!("Design system for {}", library_name)),
+        description: Some(format!("Design system for {library_name}")),
         colors: tokens.map(|t| {
             t.colors
                 .iter()
@@ -102,152 +112,146 @@ pub fn export_design_md(
         breakpoints: None,
     };
 
-    let yaml = serde_yaml::to_string(&front_matter).unwrap_or_else(|_| String::new());
+    let yaml = serde_norway::to_string(&front_matter).unwrap_or_else(|_| String::new());
     md.push_str("---\n");
     md.push_str(&yaml);
     md.push_str("---\n\n");
 
     // Header
-    md.push_str(&format!("# {} v{}\n\n", library_name, version));
-    md.push_str("This is an AI‑native design specification for the `{}` component library. ");
+    let _ = writeln!(md, "# {library_name} v{version}\n");
+    md.push_str("This is an AI-native design specification for the `{}` component library. ");
     md.push_str("It describes the design tokens, component props, variants, and state machines ");
     md.push_str("in a format optimised for AI coding agents.\n\n");
 
     // Design tokens section
     if let Some(tok) = tokens {
-        md.push_str("## Design Tokens\n\n");
-        if !tok.colors.is_empty() {
-            md.push_str("### Colors\n\n");
-            for (name, value) in &tok.colors {
-                md.push_str(&format!("- **`{}`:** `{}`\n", name, value));
-            }
-            md.push('\n');
-        }
-        if !tok.spacing.is_empty() {
-            md.push_str("### Spacing\n\n");
-            for (name, value) in &tok.spacing {
-                md.push_str(&format!("- **`{}`:** `{}`\n", name, value));
-            }
-            md.push('\n');
-        }
-        if !tok.typography.is_empty() {
-            md.push_str("### Typography\n\n");
-            for (name, value) in &tok.typography {
-                md.push_str(&format!("- **`{}`:** `{}`\n", name, value));
-            }
-            md.push('\n');
-        }
+        write_tokens_section(&mut md, tok);
     }
 
     // Components section
     md.push_str("## Components\n\n");
     for comp in &spec.components {
-        let name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
-        md.push_str(&format!("### {}\n\n", name));
-
-        let desc = format!("{} component", name);
-        md.push_str(&format!("_{}_\n\n", desc));
-
-        // Props table
-        if !comp.props.is_empty() {
-            md.push_str("#### Props\n\n");
-            md.push_str("| Name | Type | Required | Default | Description |\n");
-            md.push_str("|------|------|----------|---------|-------------|\n");
-            for prop in &comp.props {
-                let con_type = prop
-                    .concrete_type
-                    .clone()
-                    .unwrap_or_else(|| format!("{:?}", prop.abstract_type));
-                let required = if prop.reactivity != AbstractReactivity::Static {
-                    "Yes"
-                } else {
-                    "No"
-                };
-                let default = if prop.reactivity == AbstractReactivity::Static {
-                    "default"
-                } else {
-                    "—"
-                };
-                md.push_str(&format!(
-                    "| `{}` | `{}` | {} | {} | |\n",
-                    prop.canonical_name, con_type, required, default
-                ));
-            }
-            md.push('\n');
-        }
-
-        // Events
-        if !comp.events.is_empty() {
-            md.push_str("#### Events\n\n");
-            for ev in &comp.events {
-                md.push_str(&format!(
-                    "- **`{}`**: `{:?}`\n",
-                    ev.canonical_name, ev.abstract_payload
-                ));
-            }
-            md.push('\n');
-        }
-
-        // Variants
-        let variants = extract_variants(comp);
-        if !variants.is_empty() {
-            md.push_str("#### Variants\n\n");
-            for v in variants {
-                md.push_str(&format!("- **`{}`**: {}\n", v.0, v.1.join(", ")));
-            }
-            md.push('\n');
-        }
-
-        // State machine
-        if let Some(ref sm) = comp.extracted_state_machine {
-            md.push_str("#### State Machine\n\n");
-            md.push_str(&format!("Initial state: **`{}`**\n\n", sm.initial));
-            md.push_str("| State | Transitions |\n");
-            md.push_str("|-------|-------------|\n");
-            for (state_name, node) in &sm.states {
-                let transitions: Vec<String> = node
-                    .on
-                    .as_ref()
-                    .map(|on| {
-                        on.iter()
-                            .map(|(ev, t)| format!("`{}` → `{}`", ev, t.target))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                md.push_str(&format!(
-                    "| `{}` | {} |\n",
-                    state_name,
-                    transitions.join(", ")
-                ));
-            }
-            md.push('\n');
-        }
-
-        md.push_str("---\n\n");
+        write_component_section(&mut md, comp);
     }
 
     fs::write(dir.join("DESIGN.md"), md).map_err(ucp_core::UcpError::Io)?;
     Ok(())
 }
 
-fn extract_variants(comp: &CanonicalAbstractComponent) -> Vec<(String, Vec<String>)> {
-    let mut variants = Vec::new();
-    for p in &comp.props {
-        if let Some(conc) = &p.concrete_type {
-            if conc.starts_with("enum: ") {
-                let values: Vec<String> =
-                    conc[6..].split(',').map(|s| s.trim().to_string()).collect();
-                variants.push((p.canonical_name.clone(), values));
-            }
+/// Write the `## Design Tokens` section (colors, spacing, typography).
+fn write_tokens_section(md: &mut String, tok: &DtcgTokens) {
+    md.push_str("## Design Tokens\n\n");
+    for (heading, entries) in [
+        ("Colors", &tok.colors),
+        ("Spacing", &tok.spacing),
+        ("Typography", &tok.typography),
+    ] {
+        if entries.is_empty() {
+            continue;
         }
+        let _ = writeln!(md, "### {heading}\n");
+        for (name, value) in entries {
+            let _ = writeln!(md, "- **`{name}`:** `{value}`");
+        }
+        md.push('\n');
     }
-    variants
+}
+
+/// Write the `### <Component>` section: props, events, variants, machine.
+fn write_component_section(md: &mut String, comp: &CanonicalAbstractComponent) {
+    let name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
+    let _ = writeln!(md, "### {name}\n");
+    let _ = writeln!(md, "_{name} component_\n");
+
+    // Props table
+    if !comp.props.is_empty() {
+        md.push_str("#### Props\n\n");
+        md.push_str("| Name | Type | Required | Default | Description |\n");
+        md.push_str("|------|------|----------|---------|-------------|\n");
+        for prop in &comp.props {
+            let con_type = prop
+                .concrete_type
+                .clone()
+                .unwrap_or_else(|| format!("{:?}", prop.abstract_type));
+            let is_static = prop.reactivity == AbstractReactivity::Static;
+            let (required, default) = if is_static {
+                ("No", "default")
+            } else {
+                ("Yes", "\u{2014}")
+            };
+            let _ = writeln!(
+                md,
+                "| `{}` | `{con_type}` | {required} | {default} | |",
+                prop.canonical_name
+            );
+        }
+        md.push('\n');
+    }
+
+    // Events
+    if !comp.events.is_empty() {
+        md.push_str("#### Events\n\n");
+        for ev in &comp.events {
+            let _ = writeln!(
+                md,
+                "- **`{}`**: `{:?}`",
+                ev.canonical_name, ev.abstract_payload
+            );
+        }
+        md.push('\n');
+    }
+
+    // Variants
+    let variants = extract_variants(comp);
+    if !variants.is_empty() {
+        md.push_str("#### Variants\n\n");
+        for (prop_name, values) in variants {
+            let _ = writeln!(md, "- **`{prop_name}`**: {}", values.join(", "));
+        }
+        md.push('\n');
+    }
+
+    // State machine
+    if let Some(sm) = &comp.extracted_state_machine {
+        write_state_machine_section(md, sm);
+    }
+
+    md.push_str("---\n\n");
+}
+
+/// Write the `#### State Machine` subsection for one component.
+fn write_state_machine_section(md: &mut String, sm: &ucp_core::cam::StateMachine) {
+    md.push_str("#### State Machine\n\n");
+    let _ = writeln!(md, "Initial state: **`{}`**\n", sm.initial);
+    md.push_str("| State | Transitions |\n");
+    md.push_str("|-------|-------------|\n");
+    for (state_name, node) in &sm.states {
+        let transitions: Vec<String> = node
+            .on
+            .as_ref()
+            .map(|on| {
+                on.iter()
+                    .map(|(ev, t)| format!("`{ev}` \u{2192} `{}`", t.target))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let _ = writeln!(md, "| `{state_name}` | {} |", transitions.join(", "));
+    }
+    md.push('\n');
+}
+
+fn extract_variants(comp: &CanonicalAbstractComponent) -> Vec<(String, Vec<String>)> {
+    crate::utils::enum_variant_map(comp, |name, values| (name.to_string(), values))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::pipeline::PipelineStats;
+    use ucp_core::cam::{
+        AbstractPropType, CanonicalAbstractComponent, CanonicalAbstractEvent,
+        CanonicalAbstractProp, SemanticFingerprint, StateMachine, StateNode,
+    };
 
     #[test]
     fn export_button_as_design_md() {
