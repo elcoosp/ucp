@@ -10,7 +10,6 @@ This document describes the high‑level architecture of the UCP workspace.
 [UCP CLI] --> [ucp-maintainer]
 [ucp-synthesizer] --> [File System (source code, specs)]
 [ucp-maintainer] --> [SQLite (registry)]
-[ucp-maintainer] --> [Ollama (optional LLM)]
 ```
 
 ## Crate Responsibilities
@@ -27,7 +26,7 @@ This document describes the high‑level architecture of the UCP workspace.
 1. **Bootstrap**: Source files → Extractors → Raw extractions → Unification → `SynthesisOutput`
 2. **Merge**: Multiple `SynthesisOutput` → Deduplication (semantic fingerprint) → Conflict detection → Merged spec
 3. **Curation**: Merged spec → Interactive TUI → Resolved conflicts → Curated spec
-4. **Export**: Curated spec → Format-specific exporters → A2UI, AG‑UI, W3C, DESIGN.md, LLMs.txt, Registry
+4. **Export**: Curated spec → Format-specific exporters → W3C, DESIGN.md, LLMs.txt, Registry
 5. **Watch**: File watcher → Bootstrap → Merge (if base spec) → Export
 
 ## Key Design Decisions
