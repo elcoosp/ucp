@@ -1,5 +1,9 @@
 //! Canonical Abstract Model — unified representation of UI components
-//! across frameworks (React, Leptos, GPUI, etc.).
+//! across frameworks (React, Leptos, GPUI, Dioxus, etc.).
+//!
+//! Every extractor in `ucp-synthesizer` reduces its framework-specific
+//! findings into these types, so downstream tooling (merge, curation,
+//! export, code generation) never sees framework-specific data.
 
 mod fingerprint;
 mod props;
