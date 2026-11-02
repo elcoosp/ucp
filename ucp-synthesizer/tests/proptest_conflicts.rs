@@ -1,13 +1,14 @@
+//! Property-based tests for the conflict engine invariants.
 use proptest::prelude::*;
 use ucp_core::cam::*;
 use ucp_synthesizer::merge::{merge_specs, MergeOptions};
-use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
+use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
 fn make_spec(id: &str, prop_type: AbstractPropType) -> SynthesisOutput {
     SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![CanonicalAbstractComponent {
-            id: format!("rust:test.rs:{}", id),
+            id: format!("rust:test.rs:{id}"),
             semantic_fingerprint: SemanticFingerprint {
                 purpose_hash: format!("{:016x}", id.len()),
                 normalized_prop_names: vec!["test_prop".into()],
@@ -22,12 +23,18 @@ fn make_spec(id: &str, prop_type: AbstractPropType) -> SynthesisOutput {
                 conflicts: vec![],
             }],
             events: vec![],
-            extracted_state_machine: None, extracted_parts: vec![], source_repos: vec![],
-            provided_context: None, consumed_contexts: vec![],
+            extracted_state_machine: None,
+            extracted_parts: vec![],
+            source_repos: vec![],
+            provided_context: None,
+            consumed_contexts: vec![],
         }],
         stats: PipelineStats {
-            files_scanned: 1, files_parsed: 1, components_found: 1,
-            conflicts_detected: 0, llm_enriched: false,
+            files_scanned: 1,
+            files_parsed: 1,
+            components_found: 1,
+            conflicts_detected: 0,
+            llm_enriched: false,
         },
         provenance: None,
         curation_log: None,
