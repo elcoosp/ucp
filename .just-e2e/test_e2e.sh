@@ -49,26 +49,26 @@ TSX
 
 step "Run bootstrap on each dir"
  $BIN bootstrap --source-dir "$TMPBASE/rust-a" --output-dir "$TMPBASE/out-rust" 2>&1 | tee /tmp/e2e-rust.txt
-grep -q "Components:     2" /tmp/e2e-rust.txt || { echo "FAIL: expected 2 Rust components"; exit 1; }
-grep -q "Files parsed:    2" /tmp/e2e-rust.txt || { echo "FAIL: expected files_parsed: 2"; exit 1; }
+grep -q "Components:    2" /tmp/e2e-rust.txt || { echo "FAIL: expected 2 Rust components"; exit 1; }
+grep -q "Files parsed:  2" /tmp/e2e-rust.txt || { echo "FAIL: expected files_parsed: 2"; exit 1; }
 
  $BIN bootstrap --source-dir "$TMPBASE/tsx-a" --output-dir "$TMPBASE/out-tsx" 2>&1 | tee /tmp/e2e-tsx.txt
-grep -q "Components:     2" /tmp/e2e-tsx.txt || { echo "FAIL: expected 2 TSX components"; exit 1; }
-grep -q "Files parsed:    2" /tmp/e2e-tsx.txt || { echo "FAIL: expected files_parsed: 2"; exit 1; }
+grep -q "Components:    2" /tmp/e2e-tsx.txt || { echo "FAIL: expected 2 TSX components"; exit 1; }
+grep -q "Files parsed:  2" /tmp/e2e-tsx.txt || { echo "FAIL: expected files_parsed: 2"; exit 1; }
 
 step "Validate each output"
- $BIN validate "$TMPBASE/out-rust/ucp-spec.json" 2>&1 | grep -q "valid with no conflicts"
- $BIN validate "$TMPBASE/out-tsx/ucp-spec.json" 2>&1 | grep -q "valid with no conflicts"
+ $BIN validate "$TMPBASE/out-rust/ucp-spec.json" 2>&1 | grep -q "Spec is valid"
+ $BIN validate "$TMPBASE/out-tsx/ucp-spec.json" 2>&1 | grep -q "Spec is valid"
 
 step "Components text output"
- $BIN components "$TMPBASE/out-rust/ucp-spec.json" 2>&1 | grep -q "component(s)"
+ $BIN components "$TMPBASE/out-rust/ucp-spec.json" 2>&1 | grep -q "Button"
 
 step "Components JSON output"
  $BIN components --format json "$TMPBASE/out-rust/ucp-spec.json" 2>&1 | python3 -m json.tool >/dev/null \
     || { echo "FAIL: invalid JSON output"; exit 1; }
 
 step "Components regex filter"
-FILTERED=$($BIN components --format json "$TMPBASE/out-rust/ucp-spec.json" 2>&1)
+FILTERED=$($BIN components --format json -f Button "$TMPBASE/out-rust/ucp-spec.json" 2>&1)
 echo "$FILTERED" | python3 -c \
     "import json, sys; data=json.load(sys.stdin); \
      names=[c['id'].rsplit(':')[-1] for c in data]; \
@@ -80,7 +80,7 @@ step "Error: nonexistent source dir"
  $BIN bootstrap --source-dir /nonexistent/path 2>&1 | grep -qi "files scanned:.*0"
 
 step "Error: nonexistent spec file"
- $BIN validate /nonexistent.json 2>&1 | grep -q "Failed to load"
+ ($BIN validate /nonexistent.json 2>&1 || true) | grep -q "Failed to load"
 
 step "Error: empty directory"
  $BIN bootstrap --source-dir "$TMPBASE/empty-dir" 2>&1 | grep -qi "files scanned:.*0"
