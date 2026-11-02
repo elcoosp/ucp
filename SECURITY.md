@@ -20,7 +20,7 @@ We will acknowledge receipt within 48 hours and aim to provide a resolution or t
 Because UCP's core value proposition involves analyzing third-party source code via AI, we enforce strict security boundaries at the architectural level. All contributors and subagent workflows must adhere to the following constraints:
 
 ### 1. Local-First AI Inference
-By design, the `ucp-synthesizer` pipeline **MUST NOT** make network requests to external AI APIs (such as OpenAI or Anthropic) by default. It exclusively targets a local Ollama instance (`http://localhost:11434`). 
+By design, the `ucp-synthesizer` pipeline **MUST NOT** make network requests: extraction, unification, merging, validation, and export are fully offline static analysis. (Since 0.13.0 there is no LLM/Ollama integration at all; the network-capable `reqwest` dependency was removed.) 
 
 If a user explicitly overrides this via the `--llm-provider openai` flag, the CLI **MUST** emit a `SECURITY WARNING` to stderr:
 ```text
