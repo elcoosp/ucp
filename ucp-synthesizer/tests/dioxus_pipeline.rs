@@ -1,10 +1,11 @@
+//! End-to-end pipeline tests over Dioxus fixture sources.
 use std::fs;
 use tempfile::TempDir;
 use ucp_core::cam::AbstractPropType;
 use ucp_synthesizer::pipeline::{self, PipelineOptions};
 
 /// A minimal Dioxus component that uses spread attributes.
-const DIOXUS_BUTTON_CODE: &str = r#"
+const DIOXUS_BUTTON_CODE: &str = r"
 #[derive(Props)]
 pub struct ButtonProps {
     #[props(default)]
@@ -19,7 +20,7 @@ pub struct ButtonProps {
 pub fn Button(props: ButtonProps) -> Element {
     rsx! { <button>{props.label}</button> }
 }
-"#;
+";
 
 #[tokio::test]
 async fn dioxus_spread_attributes_appears_in_cam_output() {
