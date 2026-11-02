@@ -75,7 +75,7 @@ pub fn make_empty_spec() -> SynthesisOutput {
         ucp_version: "4.0.0".into(), components: vec![],
         provenance: None,
         curation_log: None,
-        stats: PipelineStats { files_scanned: 0, files_parsed: 0, components_found: 0, conflicts_detected: 0, llm_enriched: false },
+        stats: PipelineStats { files_scanned: 0, files_parsed: 0, components_found: 0, conflicts_detected: 0, cache_hits: 0 },
     }
 }
 
