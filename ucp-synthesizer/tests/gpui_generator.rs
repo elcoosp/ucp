@@ -1,3 +1,4 @@
+//! Snapshot tests for the GPUI code generator output.
 use std::fs;
 use tempfile::TempDir;
 use ucp_core::cam::*;
@@ -96,14 +97,20 @@ fn snapshot_gpui_button() {
                 abstract_type: ucp_core::cam::AbstractPropType::ControlFlag,
                 reactivity: ucp_core::cam::AbstractReactivity::Static,
                 concrete_type: Some("bool".into()),
-                sources: vec![], confidence: 1.0, conflicts: vec![],
+                sources: vec![],
+                confidence: 1.0,
+                conflicts: vec![],
             },
             ucp_core::cam::CanonicalAbstractProp {
                 canonical_name: "label".into(),
-                abstract_type: ucp_core::cam::AbstractPropType::StaticValue(Box::new(ucp_core::cam::AbstractPropType::Any)),
+                abstract_type: ucp_core::cam::AbstractPropType::StaticValue(Box::new(
+                    ucp_core::cam::AbstractPropType::Any,
+                )),
                 reactivity: ucp_core::cam::AbstractReactivity::Static,
                 concrete_type: Some("String".into()),
-                sources: vec![], confidence: 1.0, conflicts: vec![],
+                sources: vec![],
+                confidence: 1.0,
+                conflicts: vec![],
             },
         ],
         events: vec![],
@@ -114,12 +121,16 @@ fn snapshot_gpui_button() {
         consumed_contexts: vec![],
     };
     let manifest = ucp_core::cam::PackageManifest {
-        name: "test-lib".into(), version: "0.1.0".into(),
+        name: "test-lib".into(),
+        version: "0.1.0".into(),
         frameworks: vec!["gpui".into()],
         components: vec![comp],
-        global_styles: None, generated_by: "test".into(), generated_at: "now".into(),
+        global_styles: None,
+        generated_by: "test".into(),
+        generated_at: "now".into(),
     };
-    ucp_synthesizer::generate::gpui::generate_gpui(&manifest, &tmp.path().to_string_lossy()).unwrap();
+    ucp_synthesizer::generate::gpui::generate_gpui(&manifest, &tmp.path().to_string_lossy())
+        .unwrap();
     let content = std::fs::read_to_string(tmp.path().join("src/button.rs")).unwrap();
     assert_snapshot!("gpui_button", content);
 }
