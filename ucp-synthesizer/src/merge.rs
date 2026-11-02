@@ -61,12 +61,10 @@ pub fn merge_specs(specs: &[SynthesisOutput], options: MergeOptions) -> Result<S
         .collect();
     let mut total_scanned = base_stats.files_scanned;
     let mut total_parsed = base_stats.files_parsed;
-    let mut any_llm = base_stats.llm_enriched;
 
     for (spec_idx, spec) in specs.iter().enumerate() {
         total_scanned += spec.stats.files_scanned;
         total_parsed += spec.stats.files_parsed;
-        any_llm = any_llm || spec.stats.llm_enriched;
         for comp in &spec.components {
             all_components.push((spec_idx, comp.clone()));
         }
@@ -103,7 +101,7 @@ pub fn merge_specs(specs: &[SynthesisOutput], options: MergeOptions) -> Result<S
             files_parsed: total_parsed,
             components_found,
             conflicts_detected,
-            llm_enriched: any_llm,
+            cache_hits: 0,
         },
     })
 }
@@ -196,22 +194,96 @@ fn detect_and_mark_conflicts(deduped: &mut [CanonicalAbstractComponent]) -> usiz
         }
     }
 
+    attachments += attach_presence_conflicts(deduped, &mut counter);
+
     attachments
 }
 
-/// Group prop indices by name for duplicate detection.
+/// Flag props that exist in only some of the component's source ports.
+///
+/// Presence drift is the core finding for multi-framework libraries: when
+/// the React port declares `className` and the Leptos port does not, the
+/// merged spec must say so instead of staying silent. Components with a
+/// single source file cannot have presence drift.
+fn attach_presence_conflicts(
+    deduped: &mut [CanonicalAbstractComponent],
+    counter: &mut usize,
+) -> usize {
+    let mut attachments = 0usize;
+    for comp in deduped.iter_mut() {
+        let source_files: Vec<&str> = comp
+            .source_repos
+            .iter()
+            .map(|s| s.file_path.as_str())
+            .collect();
+        if source_files.len() < 2 {
+            continue;
+        }
+        // Normalized prop name → files that declare it. Owned keys/values so
+        // the immutable borrow ends before props are mutated below.
+        let mut coverage: HashMap<String, Vec<String>> = HashMap::new();
+        for prop in &comp.props {
+            for source in &prop.sources {
+                coverage
+                    .entry(normalized_key(&prop.canonical_name))
+                    .or_default()
+                    .push(source.repo_id.clone());
+            }
+        }
+        for prop in &mut comp.props {
+            let key = normalized_key(&prop.canonical_name);
+            let present: Vec<String> = coverage
+                .get(&key)
+                .map(|files| {
+                    files
+                        .iter()
+                        .filter(|f| source_files.contains(&f.as_str()))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
+            let absent: Vec<String> = source_files
+                .iter()
+                .filter(|f| !present.iter().any(|p| p == *f))
+                .map(|f| (*f).to_string())
+                .collect();
+            if absent.is_empty() || present.is_empty() {
+                continue;
+            }
+            // One drift finding per prop; skip if an identical one exists.
+            let field = format!("props.{key}");
+            if prop
+                .conflicts
+                .iter()
+                .any(|c| c.field == field && c.absent_in == absent)
+            {
+                continue;
+            }
+            *counter += 1;
+            prop.conflicts.push(Conflict {
+                id: format!("drift_{counter:03}"),
+                field,
+                present_in: present,
+                absent_in: absent,
+                confidence: 0.9,
+                resolution_suggestion: ResolutionStrategy::FlagForHumanReview,
+            });
+            attachments += 1;
+        }
+    }
+    attachments
+}
+
+/// Group prop indices by normalized name for duplicate detection.
 fn prop_duplicate_groups(comp: &CanonicalAbstractComponent) -> Vec<(String, Vec<usize>)> {
-    let mut groups: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, prop) in comp.props.iter().enumerate() {
         groups
-            .entry(prop.canonical_name.as_str())
+            .entry(normalized_key(&prop.canonical_name))
             .or_default()
             .push(i);
     }
-    groups
-        .into_iter()
-        .map(|(name, idx)| (name.to_string(), idx))
-        .collect()
+    groups.into_iter().collect()
 }
 
 /// Resolve conflicts in favor of the highest-weighted source, when weights
@@ -335,22 +407,28 @@ fn merge_parts_into(base: &mut CanonicalAbstractComponent, other: &CanonicalAbst
     }
 }
 
-/// Merge `other_props` into `base_props`:
+/// Merge `other_props` into `base_props`, keyed by normalized prop name
+/// (see [`ucp_core::naming::normalize_prop_name`]) so `onClick` and
+/// `on_click` from different framework ports unify into one prop entry:
 ///
-/// - same name + same abstract type → keep the higher confidence, union sources
-/// - same name + different abstract type → keep both variants (a conflict)
-/// - new name → append
+/// - same normalized name + same abstract type → keep the higher confidence,
+///   union sources; the first-seen spelling stays canonical (deterministic
+///   given a fixed input order)
+/// - same normalized name + different abstract type → keep both variants
+///   (a conflict surfaced by the conflict scan)
+/// - new normalized name → append
 fn merge_props_into(
     base_props: &mut Vec<CanonicalAbstractProp>,
     other_props: &[CanonicalAbstractProp],
 ) {
     let mut existing_names: HashMap<String, usize> = HashMap::with_capacity(base_props.len());
     for (i, prop) in base_props.iter().enumerate() {
-        existing_names.insert(prop.canonical_name.clone(), i);
+        existing_names.insert(normalized_key(&prop.canonical_name), i);
     }
 
     for other_prop in other_props {
-        if let Some(&base_idx) = existing_names.get(&other_prop.canonical_name) {
+        let key = normalized_key(&other_prop.canonical_name);
+        if let Some(&base_idx) = existing_names.get(&key) {
             let base_prop = &base_props[base_idx];
             if base_prop.abstract_type == other_prop.abstract_type {
                 if other_prop.confidence > base_prop.confidence {
@@ -363,10 +441,15 @@ fn merge_props_into(
                 base_props.push(other_prop.clone());
             }
         } else {
-            existing_names.insert(other_prop.canonical_name.clone(), base_props.len());
+            existing_names.insert(key, base_props.len());
             base_props.push(other_prop.clone());
         }
     }
+}
+
+/// Normalized identity of a prop name for cross-framework comparison.
+fn normalized_key(name: &str) -> String {
+    ucp_core::naming::normalize_prop_name(name)
 }
 
 /// Append events from `other_events` whose name is not yet present.
@@ -400,7 +483,7 @@ mod tests {
                 files_parsed: 1,
                 components_found,
                 conflicts_detected: 0,
-                llm_enriched: false,
+                cache_hits: 0,
             },
             provenance: None,
             curation_log: None,
