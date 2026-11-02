@@ -1,18 +1,17 @@
 <div align="center">
   <img src="docs/logo.png" alt="UCP Logo" width="300"/>
   <p>
-    <strong>AI‑native component specification, extraction, and governance CLI for the shadcn/ui ecosystem.</strong><br/>
-    UCP scans frontend codebases, extracts UI component definitions into a framework‑agnostic <b>Canonical Abstract Model (CAM)</b>, merges specs from multiple sources, detects conflicts, and exports to A2UI, AG‑UI, W3C, DESIGN.md, LLMs.txt, and the shadcn registry. Written in Rust, with a scriptable CLI and an interactive TUI for curation.
+    <strong>Extract, unify, and diff UI component APIs across framework ports.</strong><br/>
+    UCP scans a component library's source code, extracts its component APIs into a
+    framework-agnostic <b>Canonical Abstract Model (CAM)</b>, merges specs from multiple
+    ports, flags drift and conflicts, and exports to DESIGN.md, LLMs.txt, W3C mapping,
+    DTCG tokens, and the shadcn registry. Written in Rust. Fully offline. No AI.
   </p>
   <p>
-    <img src="https://img.shields.io/badge/Rust-1.80%2B-000000?style=flat-square&logo=rust" alt="Rust"/>
+    <img src="https://img.shields.io/badge/Rust-1.85%2B-000000?style=flat-square&logo=rust" alt="Rust"/>
     <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License MIT"/>
-    <img src="https://img.shields.io/badge/Crates-4-6F4E37?style=flat-square" alt="Crates"/>
-    <img src="https://img.shields.io/badge/Frameworks-React%20%7C%20Leptos%20%7C%20Dioxus%20%7C%20GPUI-61DAFB?style=flat-square" alt="Frameworks"/>
-    <img src="https://img.shields.io/badge/Export-A2UI%20%7C%20AG--UI%20%7C%20W3C%20%7C%20DESIGN.md-4B32C3?style=flat-square" alt="Export formats"/>
-    <img src="https://img.shields.io/badge/Interface-CLI%20%2B%20TUI-00BFFF?style=flat-square" alt="Interface"/>
-    <img src="https://img.shields.io/badge/Backend-Ollama%20(optional)-228B22?style=flat-square" alt="Backend"/>
-    <img src="https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square&logo=githubactions" alt="Build"/>
+    <img src="https://img.shields.io/badge/Tests-254%2B%20passing-brightgreen?style=flat-square" alt="Tests"/>
+    <img src="https://img.shields.io/badge/CI-e2e%20%2B%20unit%20green-success?style=flat-square" alt="CI"/>
   </p>
 </div>
 
@@ -20,85 +19,82 @@
 
 # UCP
 
-> [!NOTE]
-> UCP is under active development. The workspace builds and the CLI is usable, but the public API and spec format are still stabilising. See [ROADMAP.md](ROADMAP.md) for what is wired up today versus what is planned.
+## The problem
 
-UCP solves a concrete problem: every framework port of a component library (React, Leptos, Dioxus, GPUI) describes the same components in a different way. UCP **discovers** those ports, **extracts** their APIs, **resolves semantic equivalences** across paradigms, and **synthesises** a single, canonical, machine‑readable specification. That spec can then be curated, merged, validated, and exported to the formats your downstream tools actually consume.
+Popular component libraries exist as parallel ports: shadcn/ui alone has React, Vue,
+Svelte, Leptos, Dioxus, and Swift ports. When upstream ships a new prop, every port
+must be updated by hand, and nothing tells you which port is missing what. Port APIs
+drift silently.
 
----
+## What UCP does about it
 
-## Quick Start
-
-```bash
-# Install
-brew install elcoosp/tap/ucp
-# or:
-cargo install ucp-cli
-
-# Bootstrap a spec from a source directory
-ucp bootstrap --source-dir ./my-dioxus-app/src --output-dir ./spec
-
-# Merge specs from two codebases
-ucp merge --input dioxus-spec.json --input react-spec.json -o merged.json
-
-# Curate conflicts interactively (TUI)
-ucp curate --merged merged.json --output curated.json
-
-# Export to every supported format
-ucp export-all --spec curated.json --output ./dist
-```
-
-A full walkthrough from zero to a validated spec is available in the [Quickstart guide](docs/user/quickstart.md).
-
----
-
-## What UCP Does
+UCP is a deterministic, offline API-drift detector and spec unifier for multi-framework
+component libraries:
 
 | Stage | Command | What happens |
 |-------|---------|--------------|
-| **Bootstrap** | `ucp bootstrap` | Scans source files, extracts component definitions, unifies them into the CAM, and writes `ucp-spec.json`. |
-| **Merge** | `ucp merge` | Combines multiple `SynthesisOutput` files, deduplicates via semantic fingerprinting, and flags conflicts. |
-| **Curate** | `ucp curate` | Opens an interactive TUI (built with Ratatui) to resolve conflicts and produce a curated spec. |
-| **Validate** | `ucp validate` | Checks the spec against UCP’s schema and invariants. |
-| **Export** | `ucp export` / `ucp export-all` | Emits A2UI, AG‑UI, W3C, DESIGN.md, LLMs.txt, or a shadcn registry from the curated spec. |
-| **Watch** | `ucp watch` | Watches source files and automatically re‑runs bootstrap → merge → export when they change. |
+| **Bootstrap** | `ucp bootstrap` | Scans source files in parallel, extracts component definitions with a real tokenizer (TSX) and `syn` (Rust), and writes `ucp-spec.json`. |
+| **Merge** | `ucp merge` | Combines specs from several ports into ONE unified component per name, uniting `onClick` with `on_click`, and flags presence drift (prop in port A, missing in port B) plus type conflicts. |
+| **Validate** | `ucp validate` | Structural checks (duplicate ids, bad confidences, empty names); exits non-zero on blocking issues — CI-ready. |
+| **Diff / Verify** | `ucp diff`, `ucp verify-spec` | Structural spec comparison and drift detection against the current source. |
+| **Curate** | `ucp curate` | Ratatui TUI to resolve flagged conflicts interactively. |
+| **Export** | `ucp export` / `ucp export-all` | DESIGN.md, LLMs.txt, W3C mapping, DTCG tokens, shadcn registry. |
+| **Watch** | `ucp watch` | Rebuilds on change; the incremental parse cache makes re-runs proportional to what changed, not repo size. |
+| **Generate** | `ucp generate` | Typed component stubs for React, Leptos, Dioxus, GPUI, and Web Components. |
 
-UCP optionally enriches extracted specs with a local LLM (Ollama) when deeper semantic understanding is needed, but the core pipeline works entirely offline.
+## Quick start
 
----
+```bash
+cargo install ucp-cli
 
-## Workspace Crates
+# Extract a spec from a source directory
+ucp bootstrap --source-dir ./my-app/src --output-dir ./spec
 
-UCP is a Rust workspace of four crates, each with a single responsibility:
+# Merge specs from two ports into one canonical spec
+ucp merge --input react-spec.json --input leptos-spec.json -o merged.json
+
+# Check structural soundness (exit code 1 on blocking issues)
+ucp validate --json merged.json
+
+# Machine-readable output everywhere
+ucp bootstrap --source-dir ./src --output-dir ./spec --json
+```
+
+## Why you can trust the output
+
+- **Deterministic**: identical input produces byte-identical specs. Specs live in
+  version control and diffs mean what they say.
+- **Static analysis only**: no LLM calls, no network, no "AI enrichment". Extraction
+  bugs are reproducible and testable.
+- **Evidence attached**: every merged prop keeps its per-port source mappings, so a
+  conflict statement points at the exact files that disagree.
+- **Benchmarked**: criterion benches cover the tokenizer, the pipeline, and the merge
+  path (`cargo bench -p ucp-synthesizer`).
+
+## Workspace crates
 
 | Crate | Purpose |
 |-------|---------|
-| `ucp-core` | Canonical Abstract Model (CAM) types, SMDL parser, error types. |
-| `ucp-synthesizer` | Extraction, unification, merging, LLM enrichment, code generation, and all export formats. |
-| `ucp-maintainer` | Interactive curation TUI, diff, token merge, drift detection, local registry (SQLite), and watch mode. |
-| `ucp-cli` | The `ucp` binary with subcommand dispatch and argument parsing. |
-
----
+| `ucp-core` | CAM types, naming normalization, SMDL parser, structural validation, errors. |
+| `ucp-synthesizer` | Extraction (Rust/TSX/Svelte/Vue/Dioxus), unification, merge, conflict engine, incremental cache, exports, generators, benches. |
+| `ucp-maintainer` | Curation TUI, diff, drift detection, token merge, SQLite registry, watch mode. |
+| `ucp-cli` | The `ucp` binary: subcommands, `--json` output, exit codes. |
 
 ## Documentation
 
-- [User Guide](docs/user/quickstart.md) — installation, tutorials, and the full command reference.
-- [Conceptual Overview: CAM](docs/user/concepts/cam.md) — how UCP represents components in a framework‑agnostic way.
-- [Architecture](docs/maintainer/architecture.md) — C4 context, crate responsibilities, and data flow.
-- [ROADMAP.md](ROADMAP.md) — current status and planned work.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — how to build, test, and submit changes.
-- [SECURITY.md](SECURITY.md) — vulnerability reporting.
+- [Quickstart](docs/user/quickstart.md) — first spec in five minutes.
+- [CAM concepts](docs/user/concepts/cam.md) — the framework-agnostic model.
+- [Architecture](docs/maintainer/architecture.md) — crate responsibilities and data flow.
+- [TRANSFORMATION.md](TRANSFORMATION.md) — what changed in 0.13.0 and why.
+- [ROADMAP.md](ROADMAP.md) — concrete, boring, achievable next steps.
 
----
+## Design principles
 
-## Design Principles
-
-- **Framework‑agnostic first.** The CAM is the source of truth, not any one framework’s component model.
-- **Offline by default.** Bootstrap, merge, curate, validate, and export all work without a network. Ollama enrichment is opt‑in.
-- **Machine‑readable outputs.** Every export is deterministic and diff‑friendly, so specs can live in version control and drive CI.
-- **Human‑in‑the‑loop curation.** Automatic merging gets you 90% of the way; the TUI makes the remaining conflicts cheap to resolve.
-
----
+- **Determinism over magic.** Same input, same bytes. Always.
+- **Evidence over inference.** Every claim in a spec traces to source lines.
+- **Boring dependencies.** No network clients, no runtimes beyond tokio, no
+  speculative format support.
+- **CI-first DX.** `--json` everywhere, real exit codes, `validate` that validates.
 
 ## License
 
