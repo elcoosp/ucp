@@ -2,14 +2,22 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use ucp_core::Result;
 
+/// Design tokens grouped by DTCG category.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DtcgTokens {
+    /// Color tokens keyed by CSS custom-property name.
     pub colors: HashMap<String, String>,
+    /// Spacing tokens keyed by CSS custom-property name.
     pub spacing: HashMap<String, String>,
+    /// Typography tokens keyed by CSS custom-property name.
     pub typography: HashMap<String, String>,
 }
 
 /// Extract design tokens from CSS custom properties and Tailwind config.
+///
+/// # Errors
+///
+/// Never errors in practice; reserved for future strict parsing modes.
 pub fn extract_tokens_from_source(source: &str) -> Result<DtcgTokens> {
     let mut tokens = DtcgTokens {
         colors: HashMap::new(),
@@ -53,6 +61,9 @@ pub fn extract_tokens_from_source(source: &str) -> Result<DtcgTokens> {
 }
 
 /// Export tokens as DTCG-compliant JSON.
+/// # Errors
+///
+/// Errors when the DTCG JSON cannot be serialized or written.
 pub fn export_tokens_to_dtcg(tokens: &DtcgTokens, output_path: &str) -> Result<()> {
     let json = serde_json::to_string_pretty(tokens).map_err(ucp_core::UcpError::Json)?;
     std::fs::write(output_path, json).map_err(ucp_core::UcpError::Io)?;
@@ -60,6 +71,9 @@ pub fn export_tokens_to_dtcg(tokens: &DtcgTokens, output_path: &str) -> Result<(
 }
 
 /// Extract design tokens from a Tailwind config file (JS/TS object).
+/// # Errors
+///
+/// Never errors in practice; unparsable config lines are skipped.
 pub fn extract_tokens_from_tailwind_config(source: &str) -> Result<DtcgTokens> {
     let mut tokens = DtcgTokens {
         colors: std::collections::HashMap::new(),
@@ -118,6 +132,9 @@ pub fn extract_tokens_from_tailwind_config(source: &str) -> Result<DtcgTokens> {
 }
 
 /// Extract design tokens from CSS modules (:root custom properties).
+/// # Errors
+///
+/// Never errors in practice; unparsable declarations are skipped.
 pub fn extract_tokens_from_css_modules(source: &str) -> Result<DtcgTokens> {
     // Reuse the existing CSS custom property parser
     extract_tokens_from_source(source)
@@ -129,11 +146,11 @@ mod tests {
 
     #[test]
     fn extract_colors_from_css() {
-        let source = r#"
+        let source = r"
         --primary: oklch(0.645 0.246 16.439);
         --background: oklch(1 0 0);
         --font-size: 1rem;
-        "#;
+        ";
         let tokens = extract_tokens_from_source(source).unwrap();
         assert!(tokens.colors.contains_key("--primary"));
         assert!(tokens.colors.contains_key("--background"));
@@ -142,7 +159,7 @@ mod tests {
 
     #[test]
     fn extract_from_tailwind_config() {
-        let config = r#"
+        let config = r"
 module.exports = {
   theme: {
     colors: {
@@ -153,7 +170,7 @@ module.exports = {
     },
   }
 }
-"#;
+";
         let tokens = extract_tokens_from_tailwind_config(config).unwrap();
         assert_eq!(tokens.colors.get("primary"), Some(&"#ff0000".to_string()));
         assert_eq!(tokens.spacing.get("sm"), Some(&"0.5rem".to_string()));
