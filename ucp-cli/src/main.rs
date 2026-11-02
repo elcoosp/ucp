@@ -1,16 +1,20 @@
 //! # UCP CLI
 //!
-//! The command‑line interface for the Universal Component Protocol.
+//! Command-line interface for the Universal Component Protocol: extract
+//! component APIs from source code, unify them across framework ports,
+//! detect drift, and export machine-readable specs.
 //!
-//! Provides subcommands for bootstrapping, validation, merging, curation,
-//! diff, token merging, drift detection, registry management, exporting,
-//! and watch mode.
+//! Design rules:
+//! - Every command is offline and deterministic.
+//! - `--json` gives machine-readable summaries for CI.
+//! - `validate` exits non-zero on structurally broken specs.
 
 use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
-use std::os::unix::process::CommandExt;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use ucp_core::cam::PackageManifest;
+use ucp_core::validation::{has_blocking_issues, validate_component_set, Severity};
 use ucp_maintainer::{
     diff::diff_specs_text,
     registry::SpecStore,
@@ -34,9 +38,6 @@ enum GeneratorTarget {
 
 #[derive(ValueEnum, Clone, Debug)]
 enum ExportTarget {
-    A2ui,
-    #[clap(name = "ag-ui")]
-    AgUi,
     Dtcg,
     #[clap(name = "design-md")]
     DesignMd,
@@ -51,7 +52,11 @@ enum ImportTarget {
 }
 
 #[derive(Parser)]
-#[command(name = "ucp", about = "UCP v4.0 AI Unification Engine", version)]
+#[command(
+    name = "ucp",
+    about = "Extract, unify, and diff UI component APIs across framework ports",
+    version
+)]
 /// UCP CLI argument parser.
 struct Cli {
     #[command(subcommand)]
@@ -60,21 +65,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Extract a spec from a source directory (offline, deterministic).
     Bootstrap {
         #[arg(long)]
         source_dir: String,
         #[arg(long, default_value = "./ucp-output")]
         output_dir: String,
+        /// Print a machine-readable JSON summary instead of the human log.
         #[arg(long)]
-        ollama_url: Option<String>,
-        #[arg(long, default_value = "glm-5:cloud")]
-        llm_model: String,
-        #[arg(long)]
-        watch: bool,
+        json: bool,
     },
+    /// Validate spec structure; exits non-zero on blocking issues.
     Validate {
         spec: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
+    /// Generate framework code from a spec.
     Generate {
         #[arg(long)]
         spec: PathBuf,
@@ -83,30 +90,7 @@ enum Commands {
         #[arg(long, short = 'o', default_value = "./generated")]
         output: PathBuf,
     },
-    Dashboard {
-        #[arg(long)]
-        spec: PathBuf,
-        #[arg(long, short = 'o', default_value = "./dashboard")]
-        output: PathBuf,
-    },
-    Mcp {
-        #[arg(long)]
-        spec: PathBuf,
-    },
-    McpServerJson {
-        #[arg(long, short = 'n', default_value = "ucp-server")]
-        name: String,
-        #[arg(long, short = 'd', default_value = "UCP Component Intelligence Server")]
-        description: String,
-        #[arg(long, short = 'o', default_value = "./mcp")]
-        output: PathBuf,
-    },
-    Contract {
-        #[arg(long)]
-        spec: PathBuf,
-        #[arg(long, short = 'o', default_value = "./ucp-contract.json")]
-        output: PathBuf,
-    },
+    /// Import an external format into a UCP spec.
     Import {
         #[arg(long, short = 't')]
         target: ImportTarget,
@@ -115,6 +99,7 @@ enum Commands {
         #[arg(long, short = 'o', default_value = "./ucp-output")]
         output: PathBuf,
     },
+    /// Export a spec to a partner format.
     Export {
         #[arg(long, short = 't')]
         target: ExportTarget,
@@ -127,18 +112,21 @@ enum Commands {
         #[arg(long, default_value = "0.1.0")]
         version: String,
     },
+    /// Build a shadcn-compatible registry from a spec.
     Registry {
         #[command(subcommand)]
         action: RegistryAction,
     },
+    /// Merge multiple specs into one unified spec.
     Merge {
         #[arg(long, num_args = 1..)]
         input: Vec<PathBuf>,
         #[arg(long, short = 'o', default_value = "./ucp-output/merged.json")]
         output: PathBuf,
-        #[arg(long, default_value = "./ucp-output")]
-        html_dir: String,
+        #[arg(long)]
+        json: bool,
     },
+    /// List or inspect components in a spec.
     Components {
         spec: PathBuf,
         #[arg(long, default_value = "text", value_parser = ["text", "json"])]
@@ -148,14 +136,14 @@ enum Commands {
         #[arg(long, short = 'v')]
         verbose: bool,
     },
-    /// v0.11: Interactive merge curation
+    /// Interactive TUI for resolving merge conflicts.
     Curate {
         #[arg(long)]
         merged: PathBuf,
         #[arg(long, short = 'o', default_value = "./curated.json")]
         output: PathBuf,
     },
-    /// v0.11: Structural spec diff
+    /// Structural diff between two specs.
     Diff {
         #[arg(long)]
         spec_a: PathBuf,
@@ -164,7 +152,7 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// v0.11: Merge DTCG tokens
+    /// Merge DTCG design-token files.
     MergeTokens {
         #[arg(long, num_args = 1..)]
         input: Vec<PathBuf>,
@@ -175,21 +163,21 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// v0.11: Drift detection
+    /// Drift detection: re-extract source and compare against the spec.
     VerifySpec {
         #[arg(long)]
         spec: PathBuf,
         #[arg(long)]
         source_dir: PathBuf,
     },
-    /// v0.11: Local spec registry management
+    /// Local spec registry backed by SQLite.
     RegistryStore {
         #[arg(long)]
         db: Option<PathBuf>,
         #[command(subcommand)]
         action: RegistryStoreAction,
     },
-    /// v0.11: Watch source directory and auto-rebuild
+    /// Watch source files and rebuild the spec on change.
     Watch {
         #[arg(long)]
         source_dir: String,
@@ -204,7 +192,7 @@ enum Commands {
         #[arg(long, default_value = "500")]
         debounce_ms: u64,
     },
-    /// v0.11: Export all formats
+    /// Export a spec to every supported format.
     ExportAll {
         #[arg(long)]
         spec: PathBuf,
@@ -257,39 +245,27 @@ enum RegistryStoreAction {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    match cli.command {
-        Commands::Bootstrap {
-            source_dir,
-            output_dir,
-            ollama_url,
-            llm_model,
-            watch,
-        } => cmd_bootstrap(&source_dir, &output_dir, ollama_url, &llm_model, watch)
-            .await
-            .context("Bootstrap failed")?,
-        other => dispatch(other).await?,
+    let exit_code = dispatch(cli.command).await?;
+    if exit_code != 0 {
+        std::process::exit(exit_code);
     }
     Ok(())
 }
 
-/// Dispatch the spec-processing commands (async where the pipeline is).
-async fn dispatch(command: Commands) -> anyhow::Result<()> {
+/// Dispatch commands; the return value is the process exit code.
+async fn dispatch(command: Commands) -> anyhow::Result<i32> {
     match command {
-        Commands::Bootstrap { .. } => unreachable!("handled in main"),
-        Commands::Validate { spec } => cmd_validate(&spec)?,
+        Commands::Bootstrap {
+            source_dir,
+            output_dir,
+            json,
+        } => cmd_bootstrap(&source_dir, &output_dir, json).await?,
+        Commands::Validate { spec, json } => return cmd_validate(&spec, json),
         Commands::Generate {
             spec,
             target,
             output,
         } => cmd_generate(&spec, &target, &output)?,
-        Commands::Dashboard { spec, output } => cmd_dashboard(&spec, &output)?,
-        Commands::Mcp { spec } => cmd_mcp(&spec).context("MCP server failed")?,
-        Commands::McpServerJson {
-            name,
-            description,
-            output,
-        } => cmd_mcp_server_json(&name, &description, &output)?,
-        Commands::Contract { spec, output } => cmd_contract(&spec, &output)?,
         Commands::Import {
             target,
             spec,
@@ -318,20 +294,19 @@ async fn dispatch(command: Commands) -> anyhow::Result<()> {
                 author.as_deref(),
                 homepage.as_deref(),
                 base,
-            ),
-        }?,
+            )?,
+        },
         Commands::Merge {
             input,
             output,
-            html_dir,
-        } => cmd_merge(&input, &output, &html_dir)?,
+            json,
+        } => cmd_merge(&input, &output, json)?,
         Commands::Components {
             spec,
             format,
             filter,
             verbose,
         } => cmd_components(&spec, &format, verbose, filter.as_deref())?,
-        // v0.11 commands
         Commands::Curate { merged, output } => cmd_curate(&merged, &output)?,
         Commands::Diff {
             spec_a,
@@ -371,11 +346,11 @@ async fn dispatch(command: Commands) -> anyhow::Result<()> {
             version,
         } => cmd_export_all(&spec, &output, &library, &version)?,
     }
-    Ok(())
+    Ok(0)
 }
 
 // ---------------------------------------------------------------------------
-// Existing command implementations (unchanged)
+// Command implementations
 // ---------------------------------------------------------------------------
 
 fn load_manifest(spec: &Path) -> anyhow::Result<PackageManifest> {
@@ -387,6 +362,103 @@ fn load_manifest(spec: &Path) -> anyhow::Result<PackageManifest> {
         return Ok(syn.to_package_manifest("ucp-extracted", "0.1.0", vec!["dioxus".into()]));
     }
     anyhow::bail!("Invalid spec format")
+}
+
+async fn cmd_bootstrap(source_dir: &str, output_dir: &str, json: bool) -> anyhow::Result<()> {
+    if !json {
+        println!("Scanning {source_dir}...");
+    }
+    let cache_path = PathBuf::from(output_dir).join(".ucp-cache.json");
+    let opts = ucp_synthesizer::pipeline::PipelineOptions {
+        cache_path: Some(cache_path),
+    };
+    let output = ucp_synthesizer::pipeline::run_pipeline_with_options(source_dir, &opts)
+        .await
+        .context("Pipeline failed")?;
+    std::fs::create_dir_all(output_dir)?;
+    let spec_path = PathBuf::from(output_dir).join("ucp-spec.json");
+    output.save_to_file(&spec_path)?;
+    if json {
+        let summary = serde_json::json!({
+            "ok": true,
+            "output": spec_path.display().to_string(),
+            "stats": {
+                "files_scanned": output.stats.files_scanned,
+                "files_parsed": output.stats.files_parsed,
+                "components_found": output.stats.components_found,
+                "conflicts_detected": output.stats.conflicts_detected,
+                "cache_hits": output.stats.cache_hits,
+            },
+            "components": output.components.len(),
+        });
+        println!("{summary}");
+    } else {
+        print_stats(&output.stats);
+        println!("\nSpec written to {}", spec_path.display());
+        if output.components.is_empty() {
+            println!("\nNo components found.");
+        } else {
+            println!("\nBootstrap complete.");
+        }
+    }
+    Ok(())
+}
+
+/// Validate a spec structurally; returns the process exit code.
+fn cmd_validate(spec: &Path, json: bool) -> anyhow::Result<i32> {
+    let output = SynthesisOutput::load_from_file(spec).context("Failed to load spec")?;
+    let issues = validate_component_set(&output.components);
+    let blocking = has_blocking_issues(&issues);
+    let errors = issues
+        .iter()
+        .filter(|i| i.severity == Severity::Error)
+        .count();
+    let warnings = issues
+        .iter()
+        .filter(|i| i.severity == Severity::Warning)
+        .count();
+
+    if json {
+        let summary = serde_json::json!({
+            "valid": !blocking,
+            "errors": errors,
+            "warnings": warnings,
+            "components": output.components.len(),
+            "conflicts": output
+                .components
+                .iter()
+                .map(|c| c.props.iter().filter(|p| !p.conflicts.is_empty()).count())
+                .sum::<usize>(),
+            "issues": issues
+                .iter()
+                .map(|i| serde_json::json!({
+                    "code": i.code,
+                    "severity": if i.severity == Severity::Error { "error" } else { "warning" },
+                    "component": i.component_id,
+                    "message": i.message,
+                }))
+                .collect::<Vec<_>>(),
+        });
+        println!("{summary}");
+    } else {
+        print_stats(&output.stats);
+        for issue in &issues {
+            let tag = if issue.severity == Severity::Error {
+                "ERROR"
+            } else {
+                "WARN"
+            };
+            println!("  [{tag}] {}: {}", issue.component_id, issue.message);
+        }
+        if blocking {
+            println!("\nSpec is INVALID: {errors} error(s), {warnings} warning(s).");
+        } else if errors + warnings == 0 {
+            println!("\nSpec is valid (no structural issues).");
+        } else {
+            println!("\nSpec is valid with {errors} error(s), {warnings} warning(s).");
+        }
+    }
+    Ok(i32::from(blocking))
 }
 
 fn cmd_generate(spec: &Path, target: &GeneratorTarget, output: &Path) -> anyhow::Result<()> {
@@ -425,47 +497,6 @@ fn cmd_generate(spec: &Path, target: &GeneratorTarget, output: &Path) -> anyhow:
         format!("{target:?}").to_lowercase(),
         output.display()
     );
-    Ok(())
-}
-
-fn cmd_export(
-    spec: &Path,
-    target: &ExportTarget,
-    output: &Path,
-    library: &str,
-    version: &str,
-) -> anyhow::Result<()> {
-    let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
-    let synth: SynthesisOutput = serde_json::from_str(&content).context("Invalid spec format")?;
-    match target {
-        ExportTarget::A2ui => ucp_synthesizer::export::a2ui::export_a2ui(
-            &synth,
-            library,
-            version,
-            &output.to_string_lossy(),
-        )?,
-        ExportTarget::AgUi => {
-            ucp_synthesizer::export::ag_ui::export_ag_ui(&synth, &output.to_string_lossy())?;
-        }
-        ExportTarget::Dtcg => {
-            let tokens = ucp_synthesizer::extract::tokens::extract_tokens_from_source(&content)?;
-            ucp_synthesizer::extract::tokens::export_tokens_to_dtcg(
-                &tokens,
-                &output.to_string_lossy(),
-            )?;
-        }
-        ExportTarget::DesignMd => ucp_synthesizer::export::design_md::export_design_md(
-            &synth,
-            None,
-            library,
-            version,
-            &output.to_string_lossy(),
-        )?,
-        ExportTarget::LlmsTxt => {
-            ucp_synthesizer::export::llms_txt::export_llms_txt(&synth, &output.to_string_lossy())?;
-        }
-    }
-    println!("Exported to {}", output.display());
     Ok(())
 }
 
@@ -515,125 +546,58 @@ fn cmd_registry_build(
     Ok(())
 }
 
-fn cmd_dashboard(spec: &Path, output: &Path) -> anyhow::Result<()> {
-    let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
-    let synth: SynthesisOutput = serde_json::from_str(&content).context("Invalid spec format")?;
-    ucp_synthesizer::dashboard::generator::generate_dashboard(&synth, &output.to_string_lossy())?;
-    println!("Dashboard written to {}", output.display());
-    Ok(())
-}
-
-fn cmd_mcp(spec: &Path) -> anyhow::Result<()> {
-    let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
-    let synth: SynthesisOutput = serde_json::from_str(&content).context("Invalid spec format")?;
-    ucp_synthesizer::contract::mcp_server::run_mcp_server(&synth)?;
-    Ok(())
-}
-
-fn cmd_mcp_server_json(name: &str, description: &str, output: &Path) -> anyhow::Result<()> {
-    ucp_synthesizer::contract::mcp_server::generate_server_json(
-        name,
-        description,
-        &output.to_string_lossy(),
-    )?;
-    println!(
-        "MCP server.json written to {}",
-        output.join("server.json").display()
-    );
-    Ok(())
-}
-
-fn cmd_contract(spec: &Path, output: &Path) -> anyhow::Result<()> {
-    let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
-    let synth: SynthesisOutput = serde_json::from_str(&content).context("Invalid spec format")?;
-    ucp_synthesizer::contract::ai_contract::export_ai_contract(&synth, &output.to_string_lossy())?;
-    println!("AI contract written to {}", output.display());
-    Ok(())
-}
-
-async fn cmd_bootstrap(
-    source_dir: &str,
-    output_dir: &str,
-    ollama_url: Option<String>,
-    llm_model: &str,
-    watch: bool,
+fn cmd_export(
+    spec: &Path,
+    target: &ExportTarget,
+    output: &Path,
+    library: &str,
+    version: &str,
 ) -> anyhow::Result<()> {
-    if watch {
-        let err = std::process::Command::new("watchexec")
-            .args([
-                "-w",
-                source_dir,
-                "--clear",
-                "-r",
-                "ucp",
-                "bootstrap",
-                "--source-dir",
-                source_dir,
-            ])
-            .exec();
-        eprintln!("Failed to launch watchexec: {err}");
-        std::process::exit(1);
+    let content = std::fs::read_to_string(spec).context("Failed to read spec")?;
+    let synth: SynthesisOutput = serde_json::from_str(&content).context("Invalid spec format")?;
+    match target {
+        ExportTarget::Dtcg => {
+            let tokens = ucp_synthesizer::extract::tokens::extract_tokens_from_source(&content)?;
+            ucp_synthesizer::extract::tokens::export_tokens_to_dtcg(
+                &tokens,
+                &output.to_string_lossy(),
+            )?;
+        }
+        ExportTarget::DesignMd => ucp_synthesizer::export::design_md::export_design_md(
+            &synth,
+            None,
+            library,
+            version,
+            &output.to_string_lossy(),
+        )?,
+        ExportTarget::LlmsTxt => {
+            ucp_synthesizer::export::llms_txt::export_llms_txt(&synth, &output.to_string_lossy())?;
+        }
     }
-    println!("🔍 Scanning {source_dir}...");
-    let dry_run = ollama_url.is_none();
-    let opts = ucp_synthesizer::pipeline::PipelineOptions {
-        ollama_url,
-        llm_model: llm_model.to_string(),
-        dry_run,
-    };
-    let output = ucp_synthesizer::pipeline::run_pipeline_with_options(source_dir, &opts)
-        .await
-        .context("Pipeline failed")?;
-    print_stats(&output.stats);
-    std::fs::create_dir_all(output_dir)?;
-    let spec_path = PathBuf::from(output_dir).join("ucp-spec.json");
-    output.save_to_file(&spec_path)?;
-    println!("\n   ✓ Spec written to {}", spec_path.display());
-    write_review_html(&output, output_dir, source_dir)?;
-    if output.components.is_empty() {
-        println!("\n⚠️  No components found.");
-    } else {
-        println!("\n✅ Synthesis complete!");
-    }
+    println!("Exported to {}", output.display());
     Ok(())
 }
 
-fn cmd_validate(spec: &Path) -> anyhow::Result<()> {
-    let output = SynthesisOutput::load_from_file(spec).context("Failed to load spec")?;
-    print_stats(&output.stats);
-    let conflicts: usize = output
-        .components
-        .iter()
-        .map(|c| c.props.iter().filter(|p| !p.conflicts.is_empty()).count())
-        .sum();
-    if conflicts > 0 {
-        println!("\n⚠️  {conflicts} unresolved conflict(s).");
-    } else {
-        println!("\n✅ Spec is valid with no conflicts.");
-    }
-    Ok(())
-}
-
-fn cmd_merge(inputs: &[PathBuf], output: &Path, html_dir: &str) -> anyhow::Result<()> {
+fn cmd_merge(inputs: &[PathBuf], output: &Path, json: bool) -> anyhow::Result<()> {
     let mut specs = Vec::new();
     for path in inputs {
         specs.push(SynthesisOutput::load_from_file(path)?);
     }
     let merged = ucp_synthesizer::merge::merge_specs(&specs, MergeOptions::default())
         .context("Merge failed")?;
-    print_stats(&merged.stats);
     merged.save_to_file(output)?;
-    if merged.stats.conflicts_detected > 0 {
-        std::fs::create_dir_all(html_dir)?;
-        let html = ucp_synthesizer::curation::generate_curation_html(
-            &[],
-            "",
-            "",
-            &serde_json::to_string_pretty(&merged)?,
-        )?;
-        std::fs::write(PathBuf::from(html_dir).join("review.html"), &html)?;
+    if json {
+        let summary = serde_json::json!({
+            "ok": true,
+            "output": output.display().to_string(),
+            "components": merged.components.len(),
+            "conflicts_detected": merged.stats.conflicts_detected,
+        });
+        println!("{summary}");
+    } else {
+        print_stats(&merged.stats);
+        println!("\nMerge complete: {}", output.display());
     }
-    println!("\n✅ Merge complete!");
     Ok(())
 }
 
@@ -660,10 +624,21 @@ fn cmd_components(
     }
     for comp in &components {
         let name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
-        println!("  🧩 {name}");
+        println!("  [] {name}");
         if verbose {
             for p in &comp.props {
-                println!("     - {}: {:?}", p.canonical_name, p.abstract_type);
+                let conflicts = p.conflicts.len();
+                let marker = if conflicts > 0 {
+                    format!(" [{conflicts} conflict(s)]")
+                } else {
+                    String::new()
+                };
+                println!(
+                    "     - {}: {}{}",
+                    p.canonical_name,
+                    p.abstract_type.kind_name(),
+                    marker
+                );
             }
         }
     }
@@ -671,32 +646,18 @@ fn cmd_components(
 }
 
 fn print_stats(stats: &ucp_synthesizer::pipeline::PipelineStats) {
-    println!("   📁 Files scanned:   {}", stats.files_scanned);
-    println!("   📄 Files parsed:    {}", stats.files_parsed);
-    println!("   🧩 Components:     {}", stats.components_found);
+    println!("   Files scanned: {}", stats.files_scanned);
+    println!("   Files parsed:  {}", stats.files_parsed);
+    println!("   Components:    {}", stats.components_found);
+    if stats.cache_hits > 0 {
+        println!("   Cache hits:    {}", stats.cache_hits);
+    }
     if stats.conflicts_detected > 0 {
-        println!("   ⚠️  Conflicts:       {}", stats.conflicts_detected);
+        println!("   Conflicts:     {}", stats.conflicts_detected);
     }
-    if stats.llm_enriched {
-        println!("   🧠 LLM enriched:     yes");
-    }
+    let _ = std::io::stdout().flush();
 }
 
-fn write_review_html(
-    output: &SynthesisOutput,
-    output_dir: &str,
-    source_label: &str,
-) -> anyhow::Result<()> {
-    let html = format!("<!DOCTYPE html><html><head><style>body{{font-family:sans-serif;}}</style></head><body><h1>UCP Review</h1><p>{} components from {}</p></body></html>", output.components.len(), source_label);
-    std::fs::write(PathBuf::from(output_dir).join("review.html"), html)?;
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// v0.11 command implementations
-// ---------------------------------------------------------------------------
-
-/// Run interactive curation on a merged spec.
 fn cmd_curate(merged: &Path, output: &Path) -> anyhow::Result<()> {
     let merged_spec =
         SynthesisOutput::load_from_file(merged).context("Failed to load merged spec")?;
@@ -705,11 +666,10 @@ fn cmd_curate(merged: &Path, output: &Path) -> anyhow::Result<()> {
     curated
         .save_to_file(output)
         .context("Failed to save curated spec")?;
-    println!("✅ Curated spec saved to {}", output.display());
+    println!("Curated spec saved to {}", output.display());
     Ok(())
 }
 
-/// Diff two specs.
 fn cmd_diff(spec_a: &Path, spec_b: &Path, json: bool) -> anyhow::Result<()> {
     let a = SynthesisOutput::load_from_file(spec_a).context("Failed to load spec_a")?;
     let b = SynthesisOutput::load_from_file(spec_b).context("Failed to load spec_b")?;
@@ -724,7 +684,6 @@ fn cmd_diff(spec_a: &Path, spec_b: &Path, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Merge DTCG token files.
 fn cmd_merge_tokens(
     inputs: &[PathBuf],
     output: &Path,
@@ -755,7 +714,7 @@ fn cmd_merge_tokens(
     .context("Token merge failed")?;
 
     if !result.conflicts.is_empty() {
-        println!("⚠️  {} conflict(s) detected:", result.conflicts.len());
+        println!("{} conflict(s) detected:", result.conflicts.len());
         for c in &result.conflicts {
             println!("  - {}:", c.key);
             for (src, val) in &c.values {
@@ -766,11 +725,10 @@ fn cmd_merge_tokens(
 
     let json = serde_json::to_string_pretty(&result.merged)?;
     std::fs::write(output, json)?;
-    println!("✅ Merged tokens saved to {}", output.display());
+    println!("Merged tokens saved to {}", output.display());
     Ok(())
 }
 
-/// Run drift detection against a source directory.
 async fn cmd_verify_spec(spec_path: &Path, source_dir: &Path) -> anyhow::Result<()> {
     let spec = SynthesisOutput::load_from_file(spec_path)?;
     let report = verify_spec_against_source(&spec, &source_dir.to_string_lossy())
@@ -781,9 +739,9 @@ async fn cmd_verify_spec(spec_path: &Path, source_dir: &Path) -> anyhow::Result<
         && report.missing_in_source.is_empty()
         && report.new_in_source.is_empty()
     {
-        println!("✅ No drift detected – spec is up-to-date.");
+        println!("No drift detected - spec is up-to-date.");
     } else {
-        println!("⚠️  Drift detected:");
+        println!("Drift detected:");
         for comp in &report.drifted_components {
             println!(
                 "  ~ {} (confidence: {:.2})",
@@ -791,7 +749,7 @@ async fn cmd_verify_spec(spec_path: &Path, source_dir: &Path) -> anyhow::Result<
             );
             for drift in &comp.prop_drifts {
                 println!(
-                    "      {}: {} → {}",
+                    "      {}: {} -> {}",
                     drift.prop_name, drift.spec_type, drift.source_type
                 );
             }
@@ -807,7 +765,6 @@ async fn cmd_verify_spec(spec_path: &Path, source_dir: &Path) -> anyhow::Result<
     Ok(())
 }
 
-/// Manage the local spec registry.
 fn cmd_registry_store(db: Option<PathBuf>, action: RegistryStoreAction) -> anyhow::Result<()> {
     let db_path = db
         .unwrap_or_else(|| PathBuf::from("ucp-registry.db"))
@@ -820,7 +777,7 @@ fn cmd_registry_store(db: Option<PathBuf>, action: RegistryStoreAction) -> anyho
         RegistryStoreAction::Store { spec, name } => {
             let spec = SynthesisOutput::load_from_file(&spec)?;
             let id = store.store(&name, &spec).context("Failed to store spec")?;
-            println!("✅ Stored as ID {id} (name: {name})");
+            println!("Stored as ID {id} (name: {name})");
         }
         RegistryStoreAction::List => {
             let items = store.list().context("Failed to list registry")?;
@@ -842,7 +799,7 @@ fn cmd_registry_store(db: Option<PathBuf>, action: RegistryStoreAction) -> anyho
         }
         RegistryStoreAction::Delete { id } => {
             if store.delete(id).context("Failed to delete spec")? {
-                println!("✅ Deleted spec ID {id}");
+                println!("Deleted spec ID {id}");
             } else {
                 println!("No spec with ID {id}");
             }
@@ -851,7 +808,6 @@ fn cmd_registry_store(db: Option<PathBuf>, action: RegistryStoreAction) -> anyho
     Ok(())
 }
 
-/// Export a spec to all supported formats.
 fn cmd_export_all(
     spec_path: &Path,
     output_dir: &Path,
@@ -863,24 +819,8 @@ fn cmd_export_all(
 
     std::fs::create_dir_all(output_dir)?;
 
-    // A2UI
-    ucp_synthesizer::export::a2ui::export_a2ui(
-        &synth,
-        library,
-        version,
-        &output_dir.join("a2ui").to_string_lossy(),
-    )?;
-
-    // AG-UI
-    ucp_synthesizer::export::ag_ui::export_ag_ui(
-        &synth,
-        &output_dir.join("ag-ui").to_string_lossy(),
-    )?;
-
-    // W3C
     ucp_synthesizer::export::w3c::export_w3c(&synth, &output_dir.join("w3c").to_string_lossy())?;
 
-    // DESIGN.md
     ucp_synthesizer::export::design_md::export_design_md(
         &synth,
         None,
@@ -889,19 +829,11 @@ fn cmd_export_all(
         &output_dir.join("design-md").to_string_lossy(),
     )?;
 
-    // LLMs.txt
     ucp_synthesizer::export::llms_txt::export_llms_txt(
         &synth,
         &output_dir.join("llms-txt").to_string_lossy(),
     )?;
 
-    // AI Contract
-    ucp_synthesizer::contract::ai_contract::export_ai_contract(
-        &synth,
-        &output_dir.join("ai-contract.json").to_string_lossy(),
-    )?;
-
-    // Registry (shadcn-compatible)
     let manifest = synth.to_package_manifest(library, version, vec!["dioxus".into()]);
     ucp_synthesizer::generate::registry::generate_registry(
         &manifest,
@@ -911,14 +843,6 @@ fn cmd_export_all(
         None,
     )?;
 
-    println!("✅ All exports written to {}", output_dir.display());
-    println!("   📁 a2ui/a2ui-catalog.json");
-    println!("   📁 ag-ui/ag-ui-events.json");
-    println!("   📁 w3c/ucp-spec.w3c.json");
-    println!("   📁 design-md/DESIGN.md");
-    println!("   📁 llms-txt/llms.txt");
-    println!("   📁 ai-contract.json");
-    println!("   📁 registry/registry.json");
-
+    println!("All exports written to {}", output_dir.display());
     Ok(())
 }
