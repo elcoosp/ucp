@@ -1,13 +1,17 @@
 use super::traits::{generate_with, CodeGenerator};
 use std::fs;
 use std::path::Path;
-use ucp_core::cam::*;
+use ucp_core::cam::{
+    AbstractPropType, AbstractReactivity, CanonicalAbstractComponent, CanonicalAbstractProp,
+    PackageManifest,
+};
 use ucp_core::Result;
 
+/// Generates React (TSX) component code from a manifest.
 pub struct ReactGenerator;
 
 impl CodeGenerator for ReactGenerator {
-    fn file_extension(&self) -> &str {
+    fn file_extension(&self) -> &'static str {
         "tsx"
     }
 
@@ -34,7 +38,7 @@ impl CodeGenerator for ReactGenerator {
 
     fn generate_component_code(&self, comp: &CanonicalAbstractComponent) -> String {
         let name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
-        let props_interface = format!("{}Props", name);
+        let props_interface = format!("{name}Props");
         let mut props_fields = Vec::new();
         let mut destructured: Vec<String> = Vec::new();
         let mut has_spread = false;
@@ -50,7 +54,7 @@ impl CodeGenerator for ReactGenerator {
                 continue;
             }
             if prop.abstract_type == AbstractPropType::Renderable {
-                props_fields.push(format!("  {}: React.ReactNode;", field_name));
+                props_fields.push(format!("  {field_name}: React.ReactNode;"));
                 destructured.push(field_name.clone());
                 continue;
             }
@@ -60,7 +64,7 @@ impl CodeGenerator for ReactGenerator {
             } else {
                 ""
             };
-            props_fields.push(format!("  {}{}: {};", field_name, optional, ts_type));
+            props_fields.push(format!("  {field_name}{optional}: {ts_type};"));
             let default_val = if prop.reactivity == AbstractReactivity::Static
                 && prop.concrete_type.as_deref() == Some("bool")
             {
@@ -68,12 +72,12 @@ impl CodeGenerator for ReactGenerator {
             } else {
                 ""
             };
-            destructured.push(format!("{}{}", field_name, default_val));
+            destructured.push(format!("{field_name}{default_val}"));
         }
 
         let spread = if has_spread { "{...rest}" } else { "" };
         format!(
-            r#"import React from 'react';
+            r"import React from 'react';
 
 interface {props_interface} {{
 {props_body}
@@ -86,7 +90,7 @@ export function {name}({{ {destructured} }}: {props_interface}) {{
     </div>
   );
 }}
-"#,
+",
             props_body = props_fields.join("\n"),
             destructured = destructured.join(", "),
             spread = spread,
@@ -105,6 +109,11 @@ export function {name}({{ {destructured} }}: {props_interface}) {{
     }
 }
 
+/// Generate a full React component library into `output_dir`.
+///
+/// # Errors
+///
+/// Errors on file-create or file-write failures.
 pub fn generate_react(manifest: &PackageManifest, output_dir: &str) -> Result<()> {
     generate_with(manifest, output_dir, &ReactGenerator)
 }
