@@ -4,6 +4,9 @@ use std::path::Path;
 use ucp_core::Result;
 
 /// Generate a self-contained, interactive HTML dashboard from a UCP spec.
+/// # Errors
+///
+/// Errors when the dashboard HTML cannot be written to `output_dir`.
 pub fn generate_dashboard(spec: &SynthesisOutput, output_dir: &str) -> Result<()> {
     let dir = Path::new(output_dir);
     fs::create_dir_all(dir).map_err(ucp_core::UcpError::Io)?;

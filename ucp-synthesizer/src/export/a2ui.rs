@@ -2,60 +2,93 @@ use crate::pipeline::SynthesisOutput;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use ucp_core::cam::*;
+use ucp_core::cam::{
+    AbstractReactivity, CanonicalAbstractComponent, CanonicalAbstractEvent, CanonicalAbstractProp,
+};
 use ucp_core::Result;
 
+/// Top-level A2UI catalog document.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct A2uiCatalog {
+    /// Catalog schema identifier (`a2ui/v1`).
     pub schema: String,
+    /// Library display name.
     pub library: String,
+    /// Spec version string.
     pub version: String,
+    /// One entry per synthesized component.
     pub components: Vec<A2uiComponent>,
 }
 
+/// One component in the A2UI catalog.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct A2uiComponent {
+    /// Fully qualified CAM id.
     pub id: String,
+    /// Bare component name.
     pub name: String,
+    /// Short description synthesized from the name.
     pub description: String,
+    /// Accepted props.
     pub props: Vec<A2uiProp>,
+    /// Emitted events.
     pub events: Vec<A2uiEvent>,
+    /// Enum-valued props lifted into variants.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub variants: Vec<A2uiVariant>,
+    /// State-machine summary, when extraction produced one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_machine: Option<String>,
 }
 
+/// One prop of an [`A2uiComponent`].
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct A2uiProp {
+    /// Prop name as declared in source.
     pub name: String,
+    /// Concrete type when known, else abstract-type debug form.
     #[serde(rename = "type")]
     pub prop_type: String,
+    /// Whether callers must supply the prop.
     pub required: bool,
+    /// Default marker for static props.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
+    /// Allowed values for enum-typed props.
     #[serde(skip_serializing_if = "Vec::is_empty", default, rename = "enumValues")]
     pub enum_values: Vec<String>,
+    /// Extra description when no concrete type is known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
 
+/// One event of an [`A2uiComponent`].
 #[derive(Serialize)]
 pub struct A2uiEvent {
+    /// Event name as declared in source.
     pub name: String,
+    /// Debug rendering of the abstract payload type.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload: Option<String>,
 }
 
+/// One enum-valued prop exposed as a variant.
 #[derive(Serialize)]
 pub struct A2uiVariant {
+    /// Prop the variant is derived from.
     pub name: String,
+    /// Allowed values.
     pub values: Vec<String>,
 }
 
+/// Write the spec as an A2UI catalog (`a2ui.json`) into `output_dir`.
+///
+/// # Errors
+///
+/// Errors on JSON serialization or file-write failures.
 pub fn export_a2ui(
     spec: &SynthesisOutput,
     library_name: &str,
@@ -82,7 +115,7 @@ fn cam_to_a2ui(comp: &CanonicalAbstractComponent) -> A2uiComponent {
     A2uiComponent {
         id: comp.id.clone(),
         name: name.clone(),
-        description: format!("{} component", name),
+        description: format!("{name} component"),
         props: comp.props.iter().map(cam_prop_to_a2ui).collect(),
         events: comp.events.iter().map(cam_event_to_a2ui).collect(),
         variants: extract_variants(comp),
@@ -119,35 +152,27 @@ fn cam_event_to_a2ui(e: &CanonicalAbstractEvent) -> A2uiEvent {
 }
 
 fn extract_variants(comp: &CanonicalAbstractComponent) -> Vec<A2uiVariant> {
-    let mut variants = Vec::new();
-    for p in &comp.props {
-        if let Some(conc) = &p.concrete_type {
-            if conc.starts_with("enum: ") {
-                let values: Vec<String> =
-                    conc[6..].split(',').map(|s| s.trim().to_string()).collect();
-                variants.push(A2uiVariant {
-                    name: p.canonical_name.clone(),
-                    values,
-                });
-            }
-        }
-    }
-    variants
+    crate::utils::enum_variant_map(comp, |name, values| A2uiVariant {
+        name: name.to_string(),
+        values,
+    })
 }
 
 fn extract_enum_values(p: &CanonicalAbstractProp) -> Vec<String> {
-    if let Some(conc) = &p.concrete_type {
-        if conc.starts_with("enum: ") {
-            return conc[6..].split(',').map(|s| s.trim().to_string()).collect();
-        }
-    }
-    vec![]
+    p.concrete_type
+        .as_deref()
+        .map(crate::utils::parse_enum_values)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::pipeline::PipelineStats;
+    use ucp_core::cam::{
+        AbstractPropType, AbstractReactivity, CanonicalAbstractComponent, CanonicalAbstractEvent,
+        CanonicalAbstractProp, SemanticFingerprint,
+    };
 
     #[test]
     fn a2ui_catalog_contains_component_props_and_events() {

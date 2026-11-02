@@ -1,9 +1,10 @@
+//! End-to-end pipeline tests over Rust fixture sources.
 use std::fs;
 use tempfile::TempDir;
 use ucp_core::cam::{AbstractPropType, AbstractReactivity};
 use ucp_synthesizer::pipeline::{self, PipelineOptions};
 
-/// Helper: create a temp source tree with a `src/` dir (required by is_path_safe_to_parse).
+/// Helper: create a temp source tree with a `src/` dir (required by `is_path_safe_to_parse`).
 fn setup_source_dir() -> TempDir {
     let tmp = TempDir::new().unwrap();
     let src_dir = tmp.path().join("src");
@@ -11,7 +12,7 @@ fn setup_source_dir() -> TempDir {
 
     fs::write(
         src_dir.join("card.rs"),
-        r#"
+        r"
 #[component]
 pub fn Card(
     #[prop(default)] elevated: bool,
@@ -20,7 +21,7 @@ pub fn Card(
 ) -> impl IntoView {
     view! { <div>{}</div> }
 }
-"#,
+",
     )
     .unwrap();
 
@@ -108,10 +109,10 @@ async fn pipeline_skips_files_outside_src() {
     // Write a file directly in tmp root (no src/ in path → rejected by is_path_safe_to_parse)
     fs::write(
         tmp.path().join("secret_component.rs"),
-        r#"
+        r"
 #[component]
 pub fn Secret(visible: bool) -> impl IntoView { view! { <div></div> } }
-"#,
+",
     )
     .unwrap();
 

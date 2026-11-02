@@ -2,7 +2,10 @@ use crate::pipeline::SynthesisOutput;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use ucp_core::cam::*;
+use ucp_core::cam::{
+    AbstractReactivity, CanonicalAbstractComponent, CanonicalAbstractEvent, CanonicalAbstractProp,
+    StateMachine,
+};
 use ucp_core::Result;
 
 // ── Full W3C UI Specification Schema types ───────────────────────────────
@@ -135,6 +138,14 @@ struct W3cResponsive {
 
 // ── Mapping logic ─────────────────────────────────────────────────────────
 
+/// Write the W3C design-components mapping as `w3c.json`.
+///
+/// Maps each CAM component onto the W3C Web Components / ARIA authoring
+/// vocabulary so specs can be validated against web-standards shapes.
+///
+/// # Errors
+///
+/// Errors on JSON serialization or file-write failures.
 pub fn export_w3c(spec: &SynthesisOutput, output_dir: &str) -> Result<()> {
     let dir = Path::new(output_dir);
     fs::create_dir_all(dir).map_err(ucp_core::UcpError::Io)?;
@@ -233,19 +244,9 @@ fn cam_event_to_w3c(e: &CanonicalAbstractEvent) -> W3cEvent {
 }
 
 fn extract_variants(comp: &CanonicalAbstractComponent) -> Vec<W3cVariant> {
-    let mut variants = Vec::new();
-    for p in &comp.props {
-        if let Some(conc) = &p.concrete_type {
-            if conc.starts_with("enum: ") {
-                let values: Vec<String> =
-                    conc[6..].split(',').map(|s| s.trim().to_string()).collect();
-                variants.push(W3cVariant {
-                    name: p.canonical_name.clone(),
-                    variant_type: "enum".to_string(),
-                    values,
-                });
-            }
-        }
-    }
-    variants
+    crate::utils::enum_variant_map(comp, |name, values| W3cVariant {
+        name: name.to_string(),
+        variant_type: "enum".to_string(),
+        values,
+    })
 }

@@ -1,3 +1,4 @@
+//! Tests for the Biome-based TSX extractor.
 use ucp_synthesizer::extract::tsx_ast::extract_tsx_components;
 
 const MOCK_REACT_BUTTON: &str = r#"
@@ -36,13 +37,13 @@ fn extract_props_from_react_tsx() {
 
 #[test]
 fn extract_non_optional_props() {
-    let code = r#"
+    let code = r"
 export interface InputProps {
   value: string;
   label: string;
 }
 export const Input = (props: InputProps) => <input value={props.value} />;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
     let input = &components[0];
@@ -58,7 +59,7 @@ fn no_components_in_empty_code() {
 
 #[test]
 fn extract_multiline_prop_type_with_nested_braces() {
-    let code = r#"
+    let code = r"
 export interface TableProps {
   data: Array<{
     id: string;
@@ -68,7 +69,7 @@ export interface TableProps {
 export const Table = (props: TableProps) => {
   return <table>{props.data.map(r => <tr key={r.id}>{r.label}</tr>)}</table>;
 };
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
 
@@ -85,13 +86,13 @@ export const Table = (props: TableProps) => {
 
 #[test]
 fn extract_export_type_interface() {
-    let code = r#"
+    let code = r"
 export type CardProps = {
   title: string;
   description?: string;
 }
 export const Card = (props: CardProps) => <div>{props.title}</div>;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
 
@@ -108,14 +109,14 @@ export const Card = (props: CardProps) => <div>{props.title}</div>;
 
 #[test]
 fn extract_function_component() {
-    let code = r#"
+    let code = r"
 export interface InputProps {
   value: string;
 }
 export function Input(props: InputProps) {
   return <input value={props.value} />;
 }
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
     assert_eq!(components[0].name, "Input");
@@ -125,7 +126,7 @@ export function Input(props: InputProps) {
 
 #[test]
 fn extract_nested_object_prop_type() {
-    let code = r#"
+    let code = r"
 export interface ConfigProps {
   theme: {
     primary: string;
@@ -133,7 +134,7 @@ export interface ConfigProps {
   };
 }
 export const Config = (props: ConfigProps) => null;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
 
@@ -160,13 +161,13 @@ export const StatusBadge = (props: { status: Status }) => null;
 
 #[test]
 fn handles_generic_interface() {
-    let code = r#"
+    let code = r"
 export interface ListProps<T> {
   items: Array<T>;
   renderItem: (item: T) => string;
 }
 export const List = (props: ListProps<string>) => null;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
 
@@ -184,14 +185,14 @@ export const List = (props: ListProps<string>) => null;
 
 #[test]
 fn handles_comma_separated_props() {
-    let code = r#"
+    let code = r"
 export interface FormProps {
   name: string,
   email: string,
   required: boolean,
 }
 export const Form = (props: FormProps) => null;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
     assert_eq!(components[0].props.len(), 3);
@@ -202,14 +203,14 @@ export const Form = (props: FormProps) => null;
 
 #[test]
 fn handles_readonly_modifier() {
-    let code = r#"
+    let code = r"
 export interface FieldProps {
   readonly id: string;
   readonly label: string;
   value: string;
 }
 export const Field = (props: FieldProps) => null;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
     assert_eq!(components[0].props.len(), 3);
@@ -220,12 +221,12 @@ export const Field = (props: FieldProps) => null;
 
 #[test]
 fn handles_record_type_with_comma() {
-    let code = r#"
+    let code = r"
 export interface MapProps {
   data: Record<string, number>;
 }
 export const MapView = (props: MapProps) => null;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
 
@@ -237,12 +238,12 @@ export const MapView = (props: MapProps) => null;
 
 #[test]
 fn tracks_real_line_start() {
-    let code = r#"
+    let code = r"
 export interface BadgeProps {
   label: string;
 }
 export const Badge = (props: BadgeProps) => null;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     // "export const Badge" is on line 5 (1-indexed: blank, interface, label, }, const)
     assert!(components[0].line_start > 0);
@@ -251,7 +252,7 @@ export const Badge = (props: BadgeProps) => null;
 
 #[test]
 fn extract_default_function_component() {
-    let code = r#"
+    let code = r"
 export interface AlertProps {
   message: string;
   visible?: boolean;
@@ -259,7 +260,7 @@ export interface AlertProps {
 export default function Alert(props: AlertProps) {
   return <div>{props.message}</div>;
 }
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
     assert_eq!(components[0].name, "Alert");
@@ -282,12 +283,12 @@ export default function Alert(props: AlertProps) {
 
 #[test]
 fn extract_default_arrow_skips_anonymous() {
-    let code = r#"
+    let code = r"
 export interface AlertProps {
   message: string;
 }
 export default (props: AlertProps) => <div>{props.message}</div>;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     // Anonymous default exports have no extractable name — skipped
     assert_eq!(components.len(), 0);
@@ -326,12 +327,12 @@ const Card: React.FC<CardProps> = ({ title, children }) => {
 
 #[test]
 fn extract_fc_without_react_prefix() {
-    let code = r#"
+    let code = r"
 export interface BadgeProps {
   label: string;
 }
 const Badge: FC<BadgeProps> = (props) => <span>{props.label}</span>;
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
     assert_eq!(components[0].name, "Badge");
@@ -339,7 +340,7 @@ const Badge: FC<BadgeProps> = (props) => <span>{props.label}</span>;
 
 #[test]
 fn extract_class_component() {
-    let code = r#"
+    let code = r"
 export interface ButtonProps {
   label: string;
   disabled?: boolean;
@@ -349,7 +350,7 @@ export class Button extends React.Component<ButtonProps> {
     return <button disabled={this.props.disabled}>{this.props.label}</button>;
   }
 }
-"#;
+";
     let components = extract_tsx_components(code).unwrap();
     assert_eq!(components.len(), 1);
     assert_eq!(components[0].name, "Button");

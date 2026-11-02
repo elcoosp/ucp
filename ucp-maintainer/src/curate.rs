@@ -1,18 +1,26 @@
 //! Core curation logic: apply conflict resolutions to a merged spec.
 
+use ucp_core::cam::ResolutionStrategy;
 use ucp_core::Result;
 use ucp_synthesizer::pipeline::SynthesisOutput;
-use ucp_core::cam::ResolutionStrategy;
 
 /// A resolution decision for a specific conflict.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Resolution {
+    /// Id of the conflict being resolved (matches `Conflict.id`).
     pub conflict_id: String,
+    /// Strategy chosen by the curator.
     pub chosen_resolution: ResolutionStrategy,
+    /// Optional free-form justification recorded in the curation log.
     pub custom_rationale: Option<String>,
 }
 
 /// Apply a list of resolutions to a merged spec, returning a curated spec.
+///
+/// # Errors
+///
+/// Never errors in practice; the `Result` keeps the curation API
+/// uniform for fallible persistence layers added later.
 pub fn curate_spec(
     merged: &SynthesisOutput,
     resolutions: &[Resolution],
@@ -54,10 +62,10 @@ pub fn curate_spec(
                         rationale: resolution.custom_rationale.clone(),
                         timestamp: chrono_now(),
                     };
-                    if curated.curation_log.is_none() {
-                        curated.curation_log = Some(Vec::new());
-                    }
-                    curated.curation_log.as_mut().unwrap().push(decision);
+                    curated
+                        .curation_log
+                        .get_or_insert_with(Vec::new)
+                        .push(decision);
                     // Conflict resolved – don't add it to new_conflicts
                 } else {
                     // Unresolved conflict stays
@@ -77,10 +85,11 @@ fn chrono_now() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    format!("{}", d)
+    format!("{d}")
 }
 
 /// Count unresolved conflicts in a spec.
+#[must_use]
 pub fn count_unresolved_conflicts(spec: &SynthesisOutput) -> usize {
     spec.components
         .iter()
@@ -100,8 +109,11 @@ mod tests {
             ucp_version: "4.0.0".into(),
             components: vec![],
             stats: PipelineStats {
-                files_scanned: 0, files_parsed: 0, components_found: 0,
-                conflicts_detected: 0, llm_enriched: false,
+                files_scanned: 0,
+                files_parsed: 0,
+                components_found: 0,
+                conflicts_detected: 0,
+                llm_enriched: false,
             },
             provenance: None,
             curation_log: None,

@@ -1,6 +1,9 @@
+use std::fmt::Write as _;
+
 use ucp_core::cam::AbstractPropType;
 
-/// Convert PascalCase or kebab-case to snake_case
+/// Convert `PascalCase` or kebab-case to `snake_case`
+#[must_use]
 pub fn to_snake_case(s: &str) -> String {
     let mut result = String::new();
     let mut prev_lower = false;
@@ -25,6 +28,7 @@ pub fn to_snake_case(s: &str) -> String {
 }
 
 /// Map abstract type to a Rust type string (framework-agnostic default)
+#[must_use]
 pub fn abstract_to_rust_type(ty: &AbstractPropType) -> String {
     match ty {
         AbstractPropType::ControlFlag => "bool".to_string(),
@@ -42,13 +46,12 @@ pub fn abstract_to_rust_type(ty: &AbstractPropType) -> String {
 }
 
 /// Map concrete type to Rust type, falling back to abstract type
+#[must_use]
 pub fn concrete_to_rust_type(concrete: Option<&str>, abstract_type: &AbstractPropType) -> String {
     match concrete {
         Some("bool") => "bool".to_string(),
-        Some("String") | Some("&str") => "String".to_string(),
-        Some("usize") | Some("i32") | Some("u32") | Some("i64") | Some("f64") => {
-            concrete.unwrap_or("f64").to_string()
-        }
+        Some("String" | "&str") => "String".to_string(),
+        Some("usize" | "i32" | "u32" | "i64" | "f64") => concrete.unwrap_or("f64").to_string(),
         Some(c) if c.starts_with("enum:") => "String".to_string(),
         Some(c) if c.contains("Fn") || c.contains("Callback") => {
             "Option<EventHandler<MouseEvent>>".to_string()
@@ -59,6 +62,7 @@ pub fn concrete_to_rust_type(concrete: Option<&str>, abstract_type: &AbstractPro
 }
 
 /// Generate the props derive attribute based on whether spread attributes are present
+#[must_use]
 pub fn generate_props_derive(has_spread: bool) -> &'static str {
     if has_spread {
         "#[derive(Props, Clone, PartialEq)]"
@@ -68,19 +72,19 @@ pub fn generate_props_derive(has_spread: bool) -> &'static str {
 }
 
 /// Generate Cargo.toml content for a generated project (edition 2024)
+#[must_use]
 pub fn generate_cargo_toml(name: &str, version: &str, dependencies: &[(&str, &str)]) -> String {
     let mut deps = String::new();
     for (dep_name, dep_version) in dependencies {
-        deps.push_str(&format!("{} = {}\n", dep_name, dep_version));
+        let _ = writeln!(deps, "{dep_name} = {dep_version}");
     }
     format!(
         r#"[package]
-name = "{}"
-version = "{}"
+name = "{name}"
+version = "{version}"
 edition = "2024"
 
 [dependencies]
-{}"#,
-        name, version, deps
+{deps}"#
     )
 }

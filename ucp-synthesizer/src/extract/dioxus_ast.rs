@@ -6,9 +6,12 @@ use super::rust_ast::{RawComponentExtraction, RawPropExtraction};
 use crate::utils::normalize_type_string;
 
 /// Extract Dioxus components that use a derive(Props) struct.
+/// # Errors
+///
+/// Errors when the source cannot be tokenized into raw props.
 pub fn extract_dioxus_components(code: &str) -> Result<Vec<RawComponentExtraction>> {
     let ast = parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
-    let mut visitor = DioxusVisitor::new(code);
+    let mut visitor = DioxusVisitor::new();
     syn::visit::visit_file(&mut visitor, &ast);
     Ok(visitor.components)
 }
@@ -24,23 +27,19 @@ struct ContextVisitor {
 
 impl<'ast> Visit<'ast> for ContextVisitor {
     fn visit_stmt(&mut self, stmt: &'ast Stmt) {
-        if let Stmt::Expr(expr, _) = stmt {
-            self.scan_expr(expr);
-        }
+        // Expression statements are handled by `visit_expr_call` below;
+        // no extra statement-level scanning is needed today.
         syn::visit::visit_stmt(self, stmt);
     }
 
     fn visit_expr_call(&mut self, call: &'ast ExprCall) {
-        // Check the function path
         if let Some(path) = extract_call_path(&call.func) {
-            // Detect `use_context_provider(|| SomeType { ... })`
-            if path == "use_context_provider" {
-                if let Some(first_arg) = call.args.first() {
-                    // The argument should be a closure `|| { ... }`
-                    if let syn::Expr::Closure(closure) = first_arg {
-                        self.scan_closure_for_struct(closure);
-                    }
-                }
+            // Detect `use_context_provider(|| SomeType { ... })` where
+            // the argument is a closure `|| { ... }`.
+            if let Some(syn::Expr::Closure(closure)) =
+                call.args.first().filter(|_| path == "use_context_provider")
+            {
+                self.scan_closure_for_struct(closure);
             }
             // Detect `use_context::<SomeType>()`
             if path == "use_context" && call.args.is_empty() {
@@ -65,11 +64,6 @@ impl<'ast> Visit<'ast> for ContextVisitor {
 }
 
 impl ContextVisitor {
-    /// Scan any expression we encounter (for non-call patterns)
-    fn scan_expr(&mut self, _expr: &syn::Expr) {
-        // Future: detect context via macros or helper functions
-    }
-
     /// Look inside a closure body for a struct literal that matches the provided context type
     fn scan_closure_for_struct(&mut self, closure: &ExprClosure) {
         let body = &closure.body;
@@ -126,23 +120,21 @@ fn extract_type_name(path: &syn::Path) -> Option<String> {
 
 // ── Dioxus Visitor (unchanged except for context detection) ────────────
 
-struct DioxusVisitor<'a> {
+struct DioxusVisitor {
     components: Vec<RawComponentExtraction>,
     props_structs: std::collections::HashMap<String, (Vec<RawPropExtraction>, usize)>,
-    source: &'a str,
 }
 
-impl<'a> DioxusVisitor<'a> {
-    fn new(source: &'a str) -> Self {
+impl DioxusVisitor {
+    fn new() -> Self {
         Self {
             components: Vec::new(),
             props_structs: std::collections::HashMap::new(),
-            source,
         }
     }
 }
 
-impl<'a> Visit<'a> for DioxusVisitor<'a> {
+impl Visit<'_> for DioxusVisitor {
     fn visit_item_struct(&mut self, item: &ItemStruct) {
         let has_props_derive = item.attrs.iter().any(|attr| {
             if let syn::Meta::List(ml) = &attr.meta {
@@ -165,7 +157,7 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
             let field_name = field
                 .ident
                 .as_ref()
-                .map(|i| i.to_string())
+                .map(std::string::ToString::to_string)
                 .unwrap_or_default();
             if field_name.is_empty() {
                 continue;
@@ -205,12 +197,8 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
         if props.is_empty() {
             return;
         }
-        let line_start = self
-            .source
-            .find(&format!("pub struct {}", struct_name))
-            .map(|pos| self.source[..pos].matches('\n').count() + 1)
-            .unwrap_or(0);
-        self.props_structs.insert(struct_name, (props, line_start));
+        self.props_structs
+            .insert(struct_name, (props, item.ident.span().start().line));
     }
 
     fn visit_item_fn(&mut self, func: &ItemFn) {
@@ -220,9 +208,8 @@ impl<'a> Visit<'a> for DioxusVisitor<'a> {
         if func.sig.inputs.len() != 1 {
             return;
         }
-        let param = match &func.sig.inputs[0] {
-            FnArg::Typed(pat_type) => pat_type,
-            _ => return,
+        let FnArg::Typed(param) = &func.sig.inputs[0] else {
+            return;
         };
         let param_type_name = normalize_type_string(&param.ty.to_token_stream().to_string());
         if let Some((props, line_start)) = self.props_structs.remove(&param_type_name) {

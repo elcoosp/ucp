@@ -1,16 +1,33 @@
-use crate::llm::{build_enrichment_prompt, infer_behavior, parse_enrichment_response};
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use ucp_core::cam::*;
-use ucp_core::Result;
+//! LLM enrichment of extracted components (Ollama-compatible backends).
+//!
+//! For every component whose source is available, a prompt is sent to the
+//! model asking for a semantic description and an SMDL state machine.
+//! Successful descriptions are folded into the semantic fingerprint so
+//! that LLM-enriched specs cluster together even when prop sets diverge.
 
-pub async fn enrich_components_with_llm(
+use std::collections::HashMap;
+use std::fmt::Write as _;
+use std::hash::BuildHasher;
+
+use ucp_core::cam::{CanonicalAbstractComponent, SemanticFingerprint};
+
+use crate::llm::{build_enrichment_prompt, infer_behavior, parse_enrichment_response};
+
+/// Enrich components in place using an Ollama-compatible endpoint.
+///
+/// Returns `true` when at least one component was successfully enriched.
+/// Failures for individual components are logged to stderr and skipped.
+///
+/// # Errors
+///
+/// Returns errors from HTTP client construction; per-component inference
+/// failures are reported but not fatal.
+pub async fn enrich_components_with_llm<S: BuildHasher>(
     components: &mut [CanonicalAbstractComponent],
-    source_map: &HashMap<String, String>,
+    source_map: &HashMap<String, String, S>,
     ollama_url: &str,
     model: &str,
-) -> Result<bool> {
+) -> ucp_core::Result<bool> {
     let client = reqwest::Client::builder()
         .build()
         .map_err(|e| ucp_core::UcpError::Http(e.to_string()))?;
@@ -33,14 +50,15 @@ pub async fn enrich_components_with_llm(
         let prompt = build_enrichment_prompt(comp_display_name, &source_code);
 
         let mut full_prompt = prompt;
-        if let Some(ref provided_ctx) = comp.provided_context {
-            full_prompt.push_str(&format!("\n\nProvides context: {}.", provided_ctx));
+        if let Some(provided_ctx) = &comp.provided_context {
+            let _ = write!(full_prompt, "\n\nProvides context: {provided_ctx}.");
         }
         if !comp.consumed_contexts.is_empty() {
-            full_prompt.push_str(&format!(
+            let _ = write!(
+                full_prompt,
                 "\nConsumes contexts: {}.",
                 comp.consumed_contexts.join(", ")
-            ));
+            );
         }
 
         match infer_behavior(&client, ollama_url, &source_code, &full_prompt, model).await {
@@ -56,66 +74,67 @@ pub async fn enrich_components_with_llm(
                             if let Ok(smdl) =
                                 ucp_core::smdl::parse_smdl(smdl_str, comp_display_name)
                             {
-                                if let Some(machine) = smdl_to_state_machine(&smdl) {
-                                    comp.extracted_state_machine = Some(machine);
-                                }
+                                comp.extracted_state_machine = Some(smdl.into());
                             }
                         }
                     }
                 }
             }
-            Err(e) => eprintln!("  ⚠ LLM enrichment failed for {}: {}", comp_display_name, e),
+            Err(e) => eprintln!("  ⚠ LLM enrichment failed for {comp_display_name}: {e}"),
         }
     }
 
     Ok(any_success)
 }
 
-pub fn smdl_to_state_machine(smdl: &ucp_core::smdl::SmdlComponent) -> Option<StateMachine> {
-    let id = smdl.id.clone();
-    let initial = smdl.initial.clone();
-    let mut states = BTreeMap::new();
-    for (state_name, state_value) in &smdl.states {
-        let mut transitions = BTreeMap::new();
-        if let Some(on_map) = &state_value.on {
-            for (event_name, trans_value) in on_map {
-                transitions.insert(
-                    event_name.clone(),
-                    Transition {
-                        target: trans_value.target.clone(),
-                        side_effects: trans_value.side_effects.clone(),
-                    },
-                );
-            }
-        }
-        states.insert(
-            state_name.clone(),
-            StateNode {
-                on: if transitions.is_empty() {
-                    None
-                } else {
-                    Some(transitions)
-                },
-            },
-        );
-    }
-    Some(StateMachine {
-        id,
-        initial,
-        states,
-    })
-}
-
+/// Blend an LLM description into a component's semantic fingerprint.
+///
+/// Words longer than three characters are folded (lower-cased) into the
+/// hash together with the original structural hash.
+#[must_use]
 pub fn compute_purpose_hash_with_llm(
     fingerprint: &SemanticFingerprint,
     llm_description: &str,
 ) -> String {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    fingerprint.purpose_hash.hash(&mut hasher);
+    let mut bytes: Vec<u8> = fingerprint.purpose_hash.as_bytes().to_vec();
     for word in llm_description.split_whitespace() {
         if word.len() > 3 {
-            word.to_lowercase().hash(&mut hasher);
+            bytes.push(0x1f);
+            bytes.extend_from_slice(word.to_lowercase().as_bytes());
         }
     }
-    format!("{:016x}", hasher.finish())
+    format!("{:016x}", ucp_core::fnv1a64(&bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn llm_hash_blends_description_words() {
+        let fp = SemanticFingerprint {
+            purpose_hash: "abc123".to_string(),
+            normalized_prop_names: vec![],
+        };
+        let h1 = compute_purpose_hash_with_llm(&fp, "Accessible disclosure button");
+        let h2 = compute_purpose_hash_with_llm(&fp, "Accessible disclosure button");
+        let h3 = compute_purpose_hash_with_llm(&fp, "Radio group selector");
+        assert_eq!(h1, h2);
+        assert_ne!(h1, h3);
+        // Short words (<= 3 chars) are ignored.
+        assert_eq!(
+            compute_purpose_hash_with_llm(&fp, "a an the of"),
+            compute_purpose_hash_with_llm(&fp, "")
+        );
+    }
+
+    #[test]
+    fn smdl_conversion_via_from_trait() {
+        let smdl =
+            ucp_core::smdl::parse_smdl("component T { state A { on GO -> B {} } state B {} }", "T")
+                .unwrap();
+        let sm: ucp_core::cam::StateMachine = smdl.into();
+        assert_eq!(sm.initial, "A");
+        assert!(sm.transition("A", "GO").is_some());
+    }
 }

@@ -1,3 +1,4 @@
+//! Snapshot tests for real GPUI component sources.
 use std::path::Path;
 
 #[test]

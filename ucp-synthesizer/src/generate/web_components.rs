@@ -2,13 +2,17 @@ use super::common::to_snake_case;
 use super::traits::{generate_with, CodeGenerator};
 use std::fs;
 use std::path::Path;
-use ucp_core::cam::*;
+use ucp_core::cam::{
+    AbstractPropType, AbstractReactivity, CanonicalAbstractComponent, CanonicalAbstractProp,
+    PackageManifest,
+};
 use ucp_core::Result;
 
+/// Generates framework-agnostic Web Components (JS) from a manifest.
 pub struct WebComponentsGenerator;
 
 impl CodeGenerator for WebComponentsGenerator {
-    fn file_extension(&self) -> &str {
+    fn file_extension(&self) -> &'static str {
         "js"
     }
 
@@ -29,7 +33,7 @@ impl CodeGenerator for WebComponentsGenerator {
     fn generate_component_code(&self, comp: &CanonicalAbstractComponent) -> String {
         let name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
         let tag = format!("ucp-{}", to_snake_case(name));
-        let cls = format!("{}Element", name);
+        let cls = format!("{name}Element");
         let mut props = Vec::new();
         let mut events = Vec::new();
 
@@ -70,7 +74,7 @@ impl CodeGenerator for WebComponentsGenerator {
             "\n      <!-- no slot -->\n    "
         };
         format!(
-            r#"import {{ LitElement, html, css }} from 'lit';
+            r"import {{ LitElement, html, css }} from 'lit';
 import {{ customElement, property }} from 'lit/decorators.js';
 
 @customElement('{tag}')
@@ -79,7 +83,7 @@ export class {cls} extends LitElement {{
 {props}
 {events}
   render() {{ return html`{slot}`; }}
-}}"#,
+}}",
             props = props.join("\n\n"),
             events = events.join("\n\n"),
             slot = slot,
@@ -96,6 +100,11 @@ export class {cls} extends LitElement {{
     }
 }
 
+/// Generate vanilla Web Components into `output_dir`.
+///
+/// # Errors
+///
+/// Errors on file-create or file-write failures.
 pub fn generate_web_components(manifest: &PackageManifest, output_dir: &str) -> Result<()> {
     generate_with(manifest, output_dir, &WebComponentsGenerator)
 }

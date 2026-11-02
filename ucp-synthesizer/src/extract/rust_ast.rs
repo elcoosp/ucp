@@ -1,27 +1,79 @@
-use super::dioxus_ast;
+//! Rust source extraction: Leptos `#[component]` functions, struct-props
+//! components, and GPUI `IntoElement` builder structs.
+
 use quote::ToTokens;
-use syn::{parse_file, visit::Visit, FnArg, ItemFn, Meta, Pat};
+use syn::visit::Visit;
+use syn::{parse_file, FnArg, ItemFn, Meta, Pat};
 use ucp_core::Result;
 
+use super::context;
+
+/// A component extracted from Rust source before unification.
 #[derive(Debug, Clone)]
 pub struct RawComponentExtraction {
+    /// Component name (fn or struct identifier).
     pub name: String,
+    /// 1-based line where the definition starts.
     pub line_start: usize,
+    /// Raw props found on the component.
     pub props: Vec<RawPropExtraction>,
+    /// Whether the component is a struct-props pattern (Leptos/Dioxus
+    /// `XProps` struct + render impl) rather than a plain function.
     pub is_struct_pattern: bool,
+    /// Type name of a provided context, if detected.
     pub provided_context: Option<String>,
+    /// Type names of consumed contexts.
     pub consumed_contexts: Vec<String>,
 }
 
+/// A single prop extracted from Rust source before unification.
 #[derive(Debug, Clone)]
 pub struct RawPropExtraction {
+    /// Prop name.
     pub name: String,
+    /// Type as written in the source, normalized.
     pub raw_type: String,
+    /// Whether the prop has a default value.
     pub has_default: bool,
+    /// Whether the prop is an event handler.
     pub is_event: bool,
+    /// Whether the prop spreads HTML attributes.
     pub is_spread_attributes: bool,
 }
 
+/// Extract all components from a Rust source string.
+///
+/// Combines four extraction strategies (Leptos `#[component]` fns,
+/// `XProps` struct patterns, GPUI builder structs, and Dioxus
+/// `derive(Props)` structs) and deduplicates by component name, keeping
+/// the last strategy that matched (Dioxus > GPUI > struct > fn).
+///
+/// # Errors
+///
+/// Returns [`UcpError::Parsing`](ucp_core::UcpError::Parsing) when the
+/// source is not valid Rust.
+pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>> {
+    let ast = parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
+
+    let mut fn_visitor = ComponentVisitor::default();
+    syn::visit::visit_file(&mut fn_visitor, &ast);
+
+    let mut all = fn_visitor.0;
+    all.extend(StructComponentVisitor::extract(code)?);
+    all.extend(GpuiComponentVisitor::extract(code)?);
+    all.extend(super::dioxus_ast::extract_dioxus_components(code)?);
+
+    // Deduplicate by name, deterministically. Later strategies win, matching
+    // the historical precedence of the four passes above.
+    let mut seen = std::collections::BTreeMap::new();
+    for comp in all {
+        seen.insert(comp.name.clone(), comp);
+    }
+    Ok(seen.into_values().collect())
+}
+
+/// Extract props from `#[component]`-annotated functions.
+#[derive(Default)]
 struct ComponentVisitor(Vec<RawComponentExtraction>);
 
 impl Visit<'_> for ComponentVisitor {
@@ -34,110 +86,87 @@ impl Visit<'_> for ComponentVisitor {
             return;
         }
 
-        let name = func.sig.ident.to_string();
-        let mut props = Vec::new();
+        let props = func
+            .sig
+            .inputs
+            .iter()
+            .filter_map(|input| match input {
+                FnArg::Typed(pat_type) => Some(fn_prop(pat_type)),
+                FnArg::Receiver(_) => None,
+            })
+            .collect();
 
-        for input in &func.sig.inputs {
-            if let FnArg::Typed(pat_type) = input {
-                let prop_name = if let Pat::Ident(pat_ident) = &*pat_type.pat {
-                    pat_ident.ident.to_string()
-                } else {
-                    continue;
-                };
-
-                let raw_type = pat_type.ty.to_token_stream().to_string().replace(" ", "");
-                let has_default = pat_type.attrs.iter().any(|attr| {
-                    if let Meta::List(list) = &attr.meta {
-                        list.path.is_ident("prop") && list.tokens.to_string().contains("default")
-                    } else {
-                        false
-                    }
-                });
-
-                props.push(RawPropExtraction {
-                    name: prop_name,
-                    raw_type,
-                    has_default,
-                    is_event: false,
-                    is_spread_attributes: false,
-                });
-            }
-        }
+        let usage = context::detect_leptos_context(&func.to_token_stream().to_string());
 
         self.0.push(RawComponentExtraction {
-            name,
-            line_start: 0,
+            name: func.sig.ident.to_string(),
+            line_start: func.sig.ident.span().start().line,
             props,
             is_struct_pattern: false,
-            provided_context: None,
-            consumed_contexts: vec![],
+            provided_context: usage.provided,
+            consumed_contexts: usage.consumed,
         });
     }
 }
 
-pub fn extract_rust_components(code: &str) -> Result<Vec<RawComponentExtraction>> {
-    let ast = parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
-
-    let mut fn_visitor = ComponentVisitor(Vec::new());
-    syn::visit::visit_file(&mut fn_visitor, &ast);
-
-    for comp in &mut fn_visitor.0 {
-        if comp.line_start == 0 {
-            let search = format!("fn {}", comp.name);
-            if let Some(pos) = code.find(&search) {
-                comp.line_start = code[..pos].matches('\n').count() + 1;
-            }
+/// Extract one typed function parameter as a raw prop.
+fn fn_prop(pat_type: &syn::PatType) -> RawPropExtraction {
+    let name = match &*pat_type.pat {
+        Pat::Ident(pat_ident) => pat_ident.ident.to_string(),
+        _ => String::new(),
+    };
+    let has_default = pat_type.attrs.iter().any(|attr| {
+        if let Meta::List(list) = &attr.meta {
+            list.path.is_ident("prop") && list.tokens.to_string().contains("default")
+        } else {
+            false
         }
+    });
+    RawPropExtraction {
+        name,
+        raw_type: pat_type.ty.to_token_stream().to_string().replace(' ', ""),
+        has_default,
+        is_event: false,
+        is_spread_attributes: false,
     }
-
-    let struct_components = StructComponentVisitor::extract(code)?;
-    let gpui_components = GpuiComponentVisitor::extract(code)?;
-    let dioxus_components = dioxus_ast::extract_dioxus_components(code)?;
-
-    let mut all = fn_visitor.0;
-    all.extend(struct_components);
-    all.extend(gpui_components);
-    all.extend(dioxus_components);
-
-    let mut seen = std::collections::HashMap::new();
-    for comp in all {
-        seen.insert(comp.name.clone(), comp);
-    }
-    let deduped: Vec<_> = seen.into_values().collect();
-
-    Ok(deduped)
 }
 
-// ── Struct-props visitor ──────────────────────────────────────────────────
+// ── Struct-props visitor (Leptos `XProps` + render impl) ─────────────────
 
+/// Extract Leptos-style struct-props components:
+/// `struct ButtonProps { .. }` + `impl Button { pub fn render(props: ButtonProps) }`.
 pub struct StructComponentVisitor {
-    pub components: Vec<RawComponentExtraction>,
+    components: Vec<RawComponentExtraction>,
+    /// `Button` → (struct name, props, line)
     props_structs: std::collections::HashMap<String, (String, Vec<RawPropExtraction>, usize)>,
-    source: String,
 }
 
 impl StructComponentVisitor {
+    /// Extract struct-props components from Rust source.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UcpError::Parsing`](ucp_core::UcpError::Parsing) when the
+    /// source is not valid Rust.
     pub fn extract(code: &str) -> Result<Vec<RawComponentExtraction>> {
-        use syn::visit::Visit;
         let ast = parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
-        let mut visitor = StructComponentVisitor {
+        let mut visitor = Self {
             components: Vec::new(),
             props_structs: std::collections::HashMap::new(),
-            source: code.to_string(),
         };
         visitor.visit_file(&ast);
         Ok(visitor.components)
     }
 }
 
-fn extract_type_name(ty: &syn::Type) -> String {
+/// Last path-segment name of a type, or `""` for non-path types.
+fn type_name(ty: &syn::Type) -> String {
     match ty {
         syn::Type::Path(type_path) => type_path
             .path
             .segments
             .last()
-            .map(|seg| seg.ident.to_string())
-            .unwrap_or_default(),
+            .map_or_else(String::new, |seg| seg.ident.to_string()),
         _ => String::new(),
     }
 }
@@ -145,88 +174,60 @@ fn extract_type_name(ty: &syn::Type) -> String {
 impl Visit<'_> for StructComponentVisitor {
     fn visit_item_struct(&mut self, item: &syn::ItemStruct) {
         let struct_name = item.ident.to_string();
-        if !struct_name.ends_with("Props") || struct_name == "Props" {
+        let Some(stem) = struct_name.strip_suffix("Props") else {
             return;
-        }
-        let stem = struct_name
-            .strip_suffix("Props")
-            .unwrap_or(&struct_name)
-            .to_string();
+        };
         if stem.is_empty() {
             return;
         }
-        let mut props = Vec::new();
-        for field in &item.fields {
-            let field_name = field
-                .ident
-                .as_ref()
-                .map(|i| i.to_string())
-                .unwrap_or_default();
-            if field_name.is_empty() {
-                continue;
-            }
-            let raw_type =
-                crate::utils::normalize_type_string(&field.ty.to_token_stream().to_string());
-            let has_default = raw_type.trim().starts_with("Option");
-            props.push(RawPropExtraction {
-                name: field_name,
-                raw_type,
-                has_default,
-                is_event: false,
-                is_spread_attributes: false,
-            });
-        }
+        let props: Vec<RawPropExtraction> = item
+            .fields
+            .iter()
+            .filter_map(|field| {
+                let name = field.ident.as_ref().map(ToString::to_string)?;
+                Some(struct_prop(&name, &field.ty))
+            })
+            .collect();
         if props.is_empty() {
             return;
         }
-        let search = format!("pub struct {}", struct_name);
-        let line_start = self
-            .source
-            .find(&search)
-            .map(|pos| self.source[..pos].matches('\n').count() + 1)
-            .unwrap_or(0);
-        self.props_structs
-            .insert(stem, (struct_name, props, line_start));
+        self.props_structs.insert(
+            stem.to_string(),
+            (struct_name, props, item.ident.span().start().line),
+        );
     }
 
     fn visit_item_impl(&mut self, item: &syn::ItemImpl) {
-        let impl_type_name = extract_type_name(&item.self_ty);
+        let impl_type_name = type_name(&item.self_ty);
         if impl_type_name.is_empty() {
             return;
         }
         if let Some((struct_name, props, line_start)) = self.props_structs.remove(&impl_type_name) {
-            let mut found_render = false;
-            for item_impl in &item.items {
-                if let syn::ImplItem::Fn(method) = item_impl {
-                    if method.sig.ident == "render"
-                        && matches!(method.vis, syn::Visibility::Public(_))
-                        && method.sig.inputs.len() == 1
-                    {
-                        if let Some(syn::FnArg::Typed(pat_type)) = method.sig.inputs.first() {
-                            let param_type_name = extract_type_name(&pat_type.ty);
-                            if param_type_name == struct_name
-                                || param_type_name.ends_with(&struct_name)
-                            {
-                                found_render = true;
-                                self.components.push(RawComponentExtraction {
-                                    name: impl_type_name.clone(),
-                                    line_start,
-                                    props: props.clone(),
-                                    is_struct_pattern: true,
-                                    provided_context: detect_leptos_context(self.source.as_str()).0,
-                                    consumed_contexts: detect_leptos_context(self.source.as_str())
-                                        .1,
-                                });
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            if !found_render {
+            let has_render = item.items.iter().any(|impl_item| {
+                let syn::ImplItem::Fn(method) = impl_item else {
+                    return false;
+                };
+                method.sig.ident == "render"
+                    && matches!(method.vis, syn::Visibility::Public(_))
+                    && method.sig.inputs.len() == 1
+                    && matches!(
+                        method.sig.inputs.first(),
+                        Some(syn::FnArg::Typed(pt)) if param_matches(&type_name(&pt.ty), &struct_name)
+                    )
+            });
+            if has_render {
+                let usage = context::detect_leptos_context(&item.to_token_stream().to_string());
+                self.components.push(RawComponentExtraction {
+                    name: impl_type_name,
+                    line_start,
+                    props,
+                    is_struct_pattern: true,
+                    provided_context: usage.provided,
+                    consumed_contexts: usage.consumed,
+                });
+            } else {
                 eprintln!(
-                    "  ⚠ Skipping component in struct {}: no matching pub fn render found",
-                    struct_name
+                    "  ⚠ Skipping component in struct {struct_name}: no matching pub fn render found"
                 );
             }
         }
@@ -234,160 +235,84 @@ impl Visit<'_> for StructComponentVisitor {
     }
 }
 
+/// True when the render impl's parameter type refers to the props struct
+/// (either exactly or as a qualified suffix).
+fn param_matches(param_type_name: &str, struct_name: &str) -> bool {
+    param_type_name == struct_name || param_type_name.ends_with(struct_name)
+}
+
+/// Build a raw prop from a named struct field.
+fn struct_prop(name: &str, ty: &syn::Type) -> RawPropExtraction {
+    let raw_type = crate::utils::normalize_type_string(&ty.to_token_stream().to_string());
+    RawPropExtraction {
+        name: name.to_string(),
+        has_default: raw_type.starts_with("Option"),
+        raw_type,
+        is_event: false,
+        is_spread_attributes: false,
+    }
+}
+
 // ── GPUI visitor ──────────────────────────────────────────────────────────
 
+/// Extract GPUI-style builder components: `#[derive(IntoElement)]` structs
+/// with `&mut self` setter methods.
 pub struct GpuiComponentVisitor;
 
 impl GpuiComponentVisitor {
+    /// Extract all GPUI components from Rust source.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UcpError::Parsing`](ucp_core::UcpError::Parsing) when the
+    /// source is not valid Rust.
     pub fn extract(code: &str) -> Result<Vec<RawComponentExtraction>> {
-        let ast = syn::parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
+        let ast = parse_file(code).map_err(|e| ucp_core::UcpError::Parsing(e.to_string()))?;
         let mut components: Vec<RawComponentExtraction> = Vec::new();
 
-        let mut struct_candidates: Vec<(&syn::Item, &syn::ItemStruct)> = Vec::new();
-        for item in &ast.items {
-            if let syn::Item::Struct(item_struct) = item {
-                if item_struct.attrs.iter().any(|attr| {
-                    if let syn::Meta::List(ml) = &attr.meta {
-                        ml.path.is_ident("derive") && ml.tokens.to_string().contains("IntoElement")
-                    } else {
-                        false
-                    }
-                }) {
-                    struct_candidates.push((item, item_struct));
-                }
-            }
-        }
+        // Structs deriving IntoElement.
+        let candidates: Vec<&syn::ItemStruct> = ast
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Struct(s) if derives_into_element(s) => Some(s),
+                _ => None,
+            })
+            .collect();
 
+        // type name -> impl items across all impl blocks.
         let mut impl_methods: std::collections::HashMap<String, Vec<&syn::ImplItem>> =
             std::collections::HashMap::new();
         for item in &ast.items {
             if let syn::Item::Impl(impl_block) = item {
-                let type_name = if let syn::Type::Path(tp) = &*impl_block.self_ty {
-                    tp.path
-                        .segments
-                        .last()
-                        .map(|s| s.ident.to_string())
-                        .unwrap_or_default()
-                } else {
-                    continue;
-                };
-                if type_name.is_empty() {
-                    continue;
+                let name = type_name(&impl_block.self_ty);
+                if !name.is_empty() {
+                    impl_methods
+                        .entry(name)
+                        .or_default()
+                        .extend(&impl_block.items);
                 }
-                impl_methods
-                    .entry(type_name)
-                    .or_default()
-                    .extend(impl_block.items.iter());
             }
         }
 
-        for (_, item_struct) in struct_candidates {
+        for item_struct in candidates {
             let struct_name = item_struct.ident.to_string();
-            let mut props: Vec<RawPropExtraction> = Vec::new();
-
-            for field in &item_struct.fields {
-                let field_name = field
-                    .ident
-                    .as_ref()
-                    .map(|i| i.to_string())
-                    .unwrap_or_default();
-                if field_name.is_empty() {
-                    continue;
-                }
-                let raw_type =
-                    crate::utils::normalize_type_string(&field.ty.to_token_stream().to_string());
-                let has_default = raw_type.trim().starts_with("Option");
-                props.push(RawPropExtraction {
-                    name: field_name.clone(),
-                    raw_type,
-                    has_default,
-                    is_event: false,
-                    is_spread_attributes: false,
-                });
-            }
-
-            if let Some(methods) = impl_methods.get(&struct_name) {
-                for item_impl in methods {
-                    if let syn::ImplItem::Fn(method) = item_impl {
-                        if method.sig.inputs.len() != 2 {
-                            continue;
-                        }
-                        if method.sig.ident == "new" {
-                            continue;
-                        }
-                        let is_mut_self = matches!(method.sig.inputs.first(), Some(syn::FnArg::Receiver(r)) if r.mutability.is_some());
-                        if !is_mut_self {
-                            continue;
-                        }
-                        let param = match &method.sig.inputs[1] {
-                            syn::FnArg::Typed(pt) => pt,
-                            _ => continue,
-                        };
-                        let arg_type = crate::utils::normalize_type_string(
-                            &param.ty.to_token_stream().to_string(),
-                        );
-                        let is_event = arg_type.contains("Fn")
-                            || arg_type.contains("Callback")
-                            || arg_type.contains("fn(")
-                            || method.sig.ident.to_string().starts_with("on_");
-                        let mut matched_field = false;
-                        for prop in &mut props {
-                            if method.sig.ident == prop.name {
-                                prop.raw_type = arg_type.clone();
-                                prop.has_default = false;
-                                prop.is_event = is_event;
-                                matched_field = true;
-                                break;
-                            }
-                        }
-                        if !matched_field && is_event {
-                            props.push(RawPropExtraction {
-                                name: method.sig.ident.to_string(),
-                                raw_type: arg_type,
-                                has_default: false,
-                                is_event: true,
-                                is_spread_attributes: false,
-                            });
-                        }
-                    }
-                }
-            }
-
-            if impl_methods.get(&struct_name).is_some_and(|methods| {
-                methods.iter().any(|m| {
-                    if let syn::ImplItem::Type(ty) = m {
-                        ty.ident == "ParentElement"
-                    } else {
-                        false
-                    }
+            let mut props: Vec<RawPropExtraction> = item_struct
+                .fields
+                .iter()
+                .filter_map(|field| {
+                    let name = field.ident.as_ref().map(ToString::to_string)?;
+                    Some(struct_prop(&name, &field.ty))
                 })
-            }) || ast.items.iter().any(|item| {
-                if let syn::Item::Impl(impl_block) = item {
-                    if let Some(trait_) = &impl_block.trait_ {
-                        if let Some(seg) = trait_.1.segments.last() {
-                            if seg.ident == "ParentElement" {
-                                if let syn::Type::Path(tp) = &*impl_block.self_ty {
-                                    if let Some(seg) = tp.path.segments.last() {
-                                        seg.ident == struct_name
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }) {
+                .collect();
+
+            apply_builder_setters(
+                &mut props,
+                impl_methods
+                    .get(&struct_name)
+                    .map_or(&[] as &[_], |methods| methods.as_slice()),
+            );
+            if implements_parent_element(&ast, &struct_name, impl_methods.get(&struct_name)) {
                 props.push(RawPropExtraction {
                     name: "children".to_string(),
                     raw_type: "Children".to_string(),
@@ -396,19 +321,13 @@ impl GpuiComponentVisitor {
                     is_spread_attributes: false,
                 });
             }
-
             if props.is_empty() {
                 continue;
             }
-            let line_start = code
-                .lines()
-                .enumerate()
-                .find(|(_, line)| line.contains(&format!("struct {}", struct_name)))
-                .map(|(i, _)| i + 1)
-                .unwrap_or(0);
+
             components.push(RawComponentExtraction {
+                line_start: item_struct.ident.span().start().line,
                 name: struct_name,
-                line_start,
                 props,
                 is_struct_pattern: false,
                 provided_context: None,
@@ -417,89 +336,129 @@ impl GpuiComponentVisitor {
         }
 
         for comp in &mut components {
-            Self::group_variant_props(&mut comp.props);
+            group_variant_props(&mut comp.props);
         }
         Ok(components)
     }
+}
 
-    fn group_variant_props(props: &mut Vec<RawPropExtraction>) {
-        use std::collections::HashMap;
-        let mut field_setters: HashMap<String, Vec<String>> = HashMap::new();
-        for p in props.iter() {
-            let parts: Vec<&str> = p.name.splitn(2, '_').collect();
-            if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
-                field_setters
-                    .entry(parts[0].to_string())
-                    .or_default()
-                    .push(parts[1].to_string());
-            }
+/// True when the struct derives `IntoElement`.
+fn derives_into_element(item_struct: &syn::ItemStruct) -> bool {
+    item_struct.attrs.iter().any(|attr| {
+        matches!(&attr.meta, syn::Meta::List(ml) if ml.path.is_ident("derive"))
+            && attr
+                .meta
+                .to_token_stream()
+                .to_string()
+                .contains("IntoElement")
+    })
+}
+
+/// Overlay builder setter methods (`&mut self` methods) onto the raw props,
+/// upgrading types and marking event handlers.
+fn apply_builder_setters(props: &mut Vec<RawPropExtraction>, methods: &[&syn::ImplItem]) {
+    for method in methods.iter().filter_map(|m| match m {
+        syn::ImplItem::Fn(f) => Some(f),
+        _ => None,
+    }) {
+        if method.sig.inputs.len() != 2 || method.sig.ident == "new" {
+            continue;
         }
-        let mut to_remove = Vec::new();
-        for (field, variants) in field_setters.iter() {
-            if variants.len() > 1 {
-                let enum_values = variants.join(" | ");
-                let default = props
-                    .iter()
-                    .find(|p| p.name == format!("{}_default", field) || p.name == *field)
-                    .and_then(|p| {
-                        if p.has_default {
-                            Some(p.name.clone())
-                        } else {
-                            None
-                        }
-                    });
-                to_remove.extend(
-                    props
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, p)| p.name.starts_with(field))
-                        .map(|(i, _)| i),
-                );
-                props.retain(|p| !p.name.starts_with(field));
-                props.push(RawPropExtraction {
-                    name: field.clone(),
-                    raw_type: format!("enum {{ {} }}", enum_values),
-                    has_default: default.is_some(),
-                    is_event: false,
-                    is_spread_attributes: false,
-                });
-            }
+        let is_mut_self = matches!(method.sig.inputs.first(), Some(syn::FnArg::Receiver(r)) if r.mutability.is_some());
+        if !is_mut_self {
+            continue;
+        }
+        let Some(syn::FnArg::Typed(param)) = method.sig.inputs.get(1) else {
+            continue;
+        };
+        let arg_type = crate::utils::normalize_type_string(&param.ty.to_token_stream().to_string());
+        let name = method.sig.ident.to_string();
+        let is_event = arg_type.contains("Fn")
+            || arg_type.contains("Callback")
+            || arg_type.contains("fn(")
+            || name.starts_with("on_");
+
+        if let Some(prop) = props.iter_mut().find(|p| p.name == name) {
+            prop.raw_type = arg_type;
+            prop.has_default = false;
+            prop.is_event = is_event;
+        } else if is_event {
+            props.push(RawPropExtraction {
+                name,
+                raw_type: arg_type,
+                has_default: false,
+                is_event: true,
+                is_spread_attributes: false,
+            });
         }
     }
 }
 
-#[allow(dead_code)]
-fn detect_leptos_context(source: &str) -> (Option<String>, Vec<String>) {
-    let mut provided = None;
-    let mut consumed = Vec::new();
-    for line in source.lines() {
-        let t = line.trim();
-        if t.contains("provide_context") {
-            if let Some(p) = t.find("provide_context") {
-                let after = &t[p + "provide_context".len()..];
-                if after.trim().starts_with("::<") {
-                    if let Some(rp) = after.find('>') {
-                        let ty = after[3..rp].trim().to_string();
-                        if !ty.is_empty() {
-                            provided = Some(ty);
-                        }
-                    }
-                }
+/// True when the struct participates in GPUI's `ParentElement` trait system
+/// (associated-type alias or trait impl), which implies a `children` prop.
+fn implements_parent_element(
+    ast: &syn::File,
+    struct_name: &str,
+    methods: Option<&Vec<&syn::ImplItem>>,
+) -> bool {
+    let via_alias = methods.is_some_and(|ms| {
+        ms.iter()
+            .any(|m| matches!(m, syn::ImplItem::Type(ty) if ty.ident == "ParentElement"))
+    });
+    via_alias
+        || ast.items.iter().any(|item| match item {
+            syn::Item::Impl(impl_block) => {
+                let trait_is_parent = impl_block
+                    .trait_
+                    .as_ref()
+                    .and_then(|(path, _)| path.segments.last())
+                    .is_some_and(|seg| seg.ident == "ParentElement");
+                trait_is_parent && type_name(&impl_block.self_ty) == struct_name
             }
-        }
-        if t.contains("use_context") {
-            if let Some(p) = t.find("use_context") {
-                let after = &t[p + "use_context".len()..];
-                if after.trim().starts_with("::<") {
-                    if let Some(rp) = after.find('>') {
-                        let ty = after[3..rp].trim().to_string();
-                        if !ty.is_empty() {
-                            consumed.push(ty);
-                        }
-                    }
-                }
-            }
+            _ => false,
+        })
+}
+
+/// Collapse GPUI variant setters (`size_small`, `size_large`) into a single
+/// enum-shaped prop.
+fn group_variant_props(props: &mut Vec<RawPropExtraction>) {
+    let mut field_setters: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for p in props.iter() {
+        let parts: Vec<&str> = p.name.splitn(2, '_').collect();
+        if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+            field_setters
+                .entry(parts[0].to_string())
+                .or_default()
+                .push(parts[1].to_string());
         }
     }
-    (provided, consumed)
+
+    let variant_fields: Vec<String> = field_setters
+        .into_iter()
+        .filter(|(_, variants)| variants.len() > 1)
+        .map(|(field, _)| field)
+        .collect();
+
+    for field in variant_fields {
+        let prefix = format!("{field}_");
+        let enum_values: Vec<String> = props
+            .iter()
+            .filter_map(|p| p.name.strip_prefix(&prefix).map(str::to_string))
+            .collect();
+        let default = props
+            .iter()
+            .find(|p| p.name == format!("{field}_default") || p.name == field)
+            .filter(|p| p.has_default)
+            .map(|p| p.name.clone());
+
+        props.retain(|p| !p.name.starts_with(&field));
+        props.push(RawPropExtraction {
+            name: field.clone(),
+            raw_type: format!("enum {{ {} }}", enum_values.join(" | ")),
+            has_default: default.is_some(),
+            is_event: false,
+            is_spread_attributes: false,
+        });
+    }
 }

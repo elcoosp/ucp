@@ -1,14 +1,18 @@
-use ucp_maintainer::registry::SpecStore;
-use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
+//! Integration tests for the spec registry store.
 use tempfile::TempDir;
+use ucp_maintainer::registry::SpecStore;
+use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
 fn empty_spec() -> SynthesisOutput {
     SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![],
         stats: PipelineStats {
-            files_scanned: 0, files_parsed: 0, components_found: 0,
-            conflicts_detected: 0, llm_enriched: false,
+            files_scanned: 0,
+            files_parsed: 0,
+            components_found: 0,
+            conflicts_detected: 0,
+            llm_enriched: false,
         },
         provenance: None,
         curation_log: None,

@@ -4,7 +4,7 @@ use crate::generate::dioxus::DioxusGenerator;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use ucp_core::cam::*;
+use ucp_core::cam::{CanonicalAbstractComponent, PackageManifest};
 use ucp_core::Result;
 
 // ── Full shadcn CLI v4 schema types ─────────────────────────────────────
@@ -76,6 +76,9 @@ struct RegistryFile {
 // ── Generation functions ────────────────────────────────────────────────
 
 /// Generate individual registry items (v0.4.0 style, still works for v4).
+/// # Errors
+///
+/// Errors when registry files cannot be written to the output directory.
 pub fn generate_registry(
     manifest: &PackageManifest,
     output_dir: &str,
@@ -92,7 +95,7 @@ pub fn generate_registry(
         let raw_name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
         let snake_name = to_snake_case(raw_name);
         let source_code = DioxusGenerator.generate_component_code(comp);
-        let file_path = format!("src/{}.rs", snake_name);
+        let file_path = format!("src/{snake_name}.rs");
         let deps = resolve_dependencies(comp, &manifest.components, namespace);
         let title = Some(humanize_name(raw_name));
 
@@ -102,7 +105,7 @@ pub fn generate_registry(
             item_type: "registry:ui".to_string(),
             title,
             description: None,
-            author: author.map(|a| a.to_string()),
+            author: author.map(std::string::ToString::to_string),
             dependencies: infer_npm_deps(manifest),
             dev_dependencies: vec![],
             registry_dependencies: deps,
@@ -120,7 +123,7 @@ pub fn generate_registry(
             })),
         };
 
-        let item_path = dir.join(format!("registry-item-{}.json", snake_name));
+        let item_path = dir.join(format!("registry-item-{snake_name}.json"));
         let content = serde_json::to_string_pretty(&item).map_err(ucp_core::UcpError::Json)?;
         fs::write(&item_path, content).map_err(ucp_core::UcpError::Io)?;
         items.push(item);
@@ -143,6 +146,9 @@ pub fn generate_registry(
 }
 
 /// Generate a `registry:base` item that bundles all components + global assets.
+/// # Errors
+///
+/// Errors when the base registry files cannot be written.
 pub fn generate_registry_base(
     manifest: &PackageManifest,
     _tokens: Option<&serde_json::Value>, // DTCG tokens placeholder
@@ -161,7 +167,7 @@ pub fn generate_registry_base(
         let raw_name = comp.id.rsplit(':').next().unwrap_or(&comp.id);
         let snake_name = to_snake_case(raw_name);
         let source_code = DioxusGenerator.generate_component_code(comp);
-        let file_path = format!("src/{}.rs", snake_name);
+        let file_path = format!("src/{snake_name}.rs");
         let deps = resolve_dependencies(comp, &manifest.components, namespace);
         all_deps.extend(deps);
 
@@ -190,7 +196,7 @@ pub fn generate_registry_base(
         item_type: "registry:base".to_string(),
         title: Some(format!("{} Base Design System", manifest.name)),
         description: Some("Complete design system including components and styles.".to_string()),
-        author: author.map(|a| a.to_string()),
+        author: author.map(std::string::ToString::to_string),
         dependencies: infer_npm_deps(manifest),
         dev_dependencies: vec![],
         registry_dependencies: all_deps,
@@ -239,7 +245,7 @@ fn resolve_dependencies(
         if let Some(conc) = &prop.concrete_type {
             if let Some(ref_name) = find_component_reference(conc, all_comps, own_name) {
                 let dep = if let Some(ns) = namespace {
-                    format!("@{}/{}", ns, ref_name)
+                    format!("@{ns}/{ref_name}")
                 } else {
                     ref_name
                 };
@@ -312,6 +318,9 @@ fn infer_npm_deps(manifest: &PackageManifest) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ucp_core::cam::{
+        AbstractPropType, AbstractReactivity, CanonicalAbstractProp, SemanticFingerprint,
+    };
 
     fn make_test_manifest() -> PackageManifest {
         let comp = CanonicalAbstractComponent {

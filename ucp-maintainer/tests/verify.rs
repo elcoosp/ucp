@@ -1,16 +1,20 @@
-use ucp_maintainer::verify::verify_spec_against_source;
-use ucp_core::cam::*;
-use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
+//! Integration tests for source-vs-spec drift verification.
 use std::fs;
 use tempfile::TempDir;
+use ucp_core::cam::*;
+use ucp_maintainer::verify::verify_spec_against_source;
+use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
 fn empty_spec() -> SynthesisOutput {
     SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![],
         stats: PipelineStats {
-            files_scanned: 0, files_parsed: 0, components_found: 0,
-            conflicts_detected: 0, llm_enriched: false,
+            files_scanned: 0,
+            files_parsed: 0,
+            components_found: 0,
+            conflicts_detected: 0,
+            llm_enriched: false,
         },
         provenance: None,
         curation_log: None,
@@ -25,7 +29,7 @@ async fn verify_empty_source_dir_no_drift() {
         .await
         .unwrap();
     assert!(report.drifted_components.is_empty());
-    assert!(report.new_in_source.is_empty());
+    assert_eq!(report.new_in_source, [] as [std::string::String; 0]);
 }
 
 #[tokio::test]
@@ -37,10 +41,10 @@ async fn verify_detects_new_component_in_source() {
     // Write a simple Rust component to the source dir
     fs::write(
         src.join("button.rs"),
-        r#"
+        r"
 #[component]
 pub fn Button(disabled: bool) -> () { () }
-"#,
+",
     )
     .unwrap();
 
@@ -50,7 +54,11 @@ pub fn Button(disabled: bool) -> () { () }
         .unwrap();
     // We expect at least one new component to be detected (depending on is_path_safe_to_parse)
     // The test just verifies the function doesn't panic and produces a report.
-    assert!(!report.new_in_source.is_empty() || !report.drifted_components.is_empty() || report.missing_in_source.is_empty());
+    assert!(
+        !report.new_in_source.is_empty()
+            || !report.drifted_components.is_empty()
+            || report.missing_in_source.is_empty()
+    );
 }
 
 #[tokio::test]

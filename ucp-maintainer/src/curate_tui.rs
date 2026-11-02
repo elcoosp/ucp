@@ -1,9 +1,11 @@
 //! Ratatui‑based interactive terminal UI for curation.
 
 use crate::curate::{curate_spec, Resolution};
-use ucp_core::Result;
-use ucp_core::cam::Conflict;
-use ucp_synthesizer::pipeline::SynthesisOutput;
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
@@ -12,25 +14,23 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Terminal,
 };
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
 use std::io;
+use ucp_core::cam::Conflict;
+use ucp_core::Result;
+use ucp_synthesizer::pipeline::SynthesisOutput;
 
 /// Run the interactive curation TUI.
-pub fn run_curation_tui(
-    merged: &SynthesisOutput,
-) -> Result<SynthesisOutput> {
+/// Run the interactive curation TUI over a merged spec.
+///
+/// # Errors
+///
+/// Errors when the terminal backend cannot be initialized (e.g. not a
+/// TTY) or the event loop fails.
+pub fn run_curation_tui(merged: &SynthesisOutput) -> Result<SynthesisOutput> {
     let conflicts: Vec<&Conflict> = merged
         .components
         .iter()
-        .flat_map(|c| {
-            c.props.iter().flat_map(move |p| {
-                p.conflicts.iter().map(move |conf| conf)
-            })
-        })
+        .flat_map(|c| c.props.iter().flat_map(move |p| p.conflicts.iter()))
         .collect();
 
     if conflicts.is_empty() {
@@ -39,12 +39,11 @@ pub fn run_curation_tui(
     }
 
     // Setup terminal
-    enable_raw_mode().map_err(|e| ucp_core::UcpError::Io(e))?;
+    enable_raw_mode().map_err(ucp_core::UcpError::Io)?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
-        .map_err(|e| ucp_core::UcpError::Io(e))?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture).map_err(ucp_core::UcpError::Io)?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend).map_err(|e| ucp_core::UcpError::Io(e))?;
+    let mut terminal = Terminal::new(backend).map_err(ucp_core::UcpError::Io)?;
 
     let mut resolutions: Vec<Resolution> = Vec::new();
     let mut current_conflict: usize = 0;
@@ -91,22 +90,18 @@ pub fn run_curation_tui(
                 Style::default().fg(Color::Gray),
             ));
             f.render_widget(instructions, chunks[2]);
-        }).map_err(|e| ucp_core::UcpError::Io(e))?;
+        })?;
 
-        if let Event::Key(key) = event::read().map_err(|e| ucp_core::UcpError::Io(e))? {
+        if let Event::Key(key) = event::read()? {
             match key.code {
-                KeyCode::Char('q') => {
-                    break Ok(curate_spec(merged, &resolutions)?);
-                }
+                KeyCode::Char('q') => break finish(merged, &resolutions),
                 KeyCode::Right | KeyCode::Char('n') => {
                     if current_conflict + 1 < conflicts.len() {
                         current_conflict += 1;
                     }
                 }
                 KeyCode::Left | KeyCode::Char('p') => {
-                    if current_conflict > 0 {
-                        current_conflict -= 1;
-                    }
+                    current_conflict = current_conflict.saturating_sub(1);
                 }
                 KeyCode::Char('a') => {
                     if let Some(conflict) = conflicts.get(current_conflict) {
@@ -115,30 +110,18 @@ pub fn run_curation_tui(
                             chosen_resolution: conflict.resolution_suggestion.clone(),
                             custom_rationale: Some("Accepted via TUI".into()),
                         });
-                        if current_conflict + 1 < conflicts.len() {
-                            current_conflict += 1;
-                        } else {
-                            break Ok(curate_spec(merged, &resolutions)?);
-                        }
                     }
+                    if review_complete(current_conflict, conflicts.len()) {
+                        break finish(merged, &resolutions);
+                    }
+                    current_conflict += 1;
                 }
-                KeyCode::Char('r') => {
-                    if let Some(_conflict) = conflicts.get(current_conflict) {
-                        // Reject the suggestion – leave conflict unresolved
-                        // Just skip to next
-                        if current_conflict + 1 < conflicts.len() {
-                            current_conflict += 1;
-                        } else {
-                            break Ok(curate_spec(merged, &resolutions)?);
-                        }
+                KeyCode::Char('r' | 's') => {
+                    // Reject / skip: leave the conflict unresolved, move on.
+                    if review_complete(current_conflict, conflicts.len()) {
+                        break finish(merged, &resolutions);
                     }
-                }
-                KeyCode::Char('s') => {
-                    if current_conflict + 1 < conflicts.len() {
-                        current_conflict += 1;
-                    } else {
-                        break Ok(curate_spec(merged, &resolutions)?);
-                    }
+                    current_conflict += 1;
                 }
                 _ => {}
             }
@@ -146,20 +129,35 @@ pub fn run_curation_tui(
     };
 
     // Restore terminal
-    disable_raw_mode().map_err(|e| ucp_core::UcpError::Io(e))?;
+    disable_raw_mode().map_err(ucp_core::UcpError::Io)?;
     execute!(
         terminal.backend_mut(),
         LeaveAlternateScreen,
         DisableMouseCapture
     )
-    .map_err(|e| ucp_core::UcpError::Io(e))?;
-    terminal.show_cursor().map_err(|e| ucp_core::UcpError::Io(e))?;
+    .map_err(ucp_core::UcpError::Io)?;
+    terminal.show_cursor().map_err(ucp_core::UcpError::Io)?;
 
     result
 }
 
+/// True when `current` is the last conflict, i.e. the review session ends.
+#[must_use]
+fn review_complete(current: usize, total: usize) -> bool {
+    current + 1 >= total
+}
+
+/// Apply the collected resolutions and produce the curated spec.
+///
+/// # Errors
+///
+/// Propagates errors from [`curate_spec`].
+fn finish(merged: &SynthesisOutput, resolutions: &[Resolution]) -> Result<SynthesisOutput> {
+    curate_spec(merged, resolutions)
+}
+
 #[cfg(test)]
 mod tests {
-    
+
     // TUI tests are integration tests and run in the tests/ directory
 }

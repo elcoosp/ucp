@@ -2,6 +2,8 @@ use reqwest::Client;
 use serde_json::json;
 use ucp_core::{Result, UcpError};
 
+/// Build the JSON request body for an Ollama `/api/generate` call.
+#[must_use]
 pub fn build_ollama_payload(prompt: &str, model: &str) -> serde_json::Value {
     json!({
         "model": model,
@@ -20,19 +22,32 @@ pub fn build_ollama_payload(prompt: &str, model: &str) -> serde_json::Value {
 /// Typed representation of the LLM enrichment response.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct EnrichmentResponse {
+    /// One-sentence semantic description of the component.
     pub description: Option<String>,
+    /// SMDL state machine text, or empty when the model found none.
     pub smdl: Option<String>,
+    /// Semantic keywords folded into the fingerprint.
     #[serde(default)]
     pub keywords: Vec<String>,
 }
 
 /// Parse a raw JSON value into a typed `EnrichmentResponse`.
+///
+/// # Errors
+///
+/// Errors when the value does not match the enrichment response schema.
 pub fn parse_enrichment_response(value: serde_json::Value) -> Result<EnrichmentResponse> {
     serde_json::from_value(value)
-        .map_err(|e| UcpError::LlmInference(format!("Failed to parse LLM response: {}", e)))
+        .map_err(|e| UcpError::LlmInference(format!("Failed to parse LLM response: {e}")))
 }
 
-/// Infer behavior from a code string via Ollama instance at the given base URL.
+/// Infer behavior from a code string via an Ollama instance at the given
+/// base URL.
+///
+/// # Errors
+///
+/// Errors on HTTP failures, missing `response` field, or invalid JSON in
+/// the model output.
 pub async fn infer_behavior(
     client: &Client,
     base_url: &str,
@@ -41,7 +56,7 @@ pub async fn infer_behavior(
     model: &str,
 ) -> Result<serde_json::Value> {
     let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
-    let full_prompt = format!("{}\n\nCode:\n```rust\n{}\n```", prompt, code);
+    let full_prompt = format!("{prompt}\n\nCode:\n```rust\n{code}\n```");
     let payload = build_ollama_payload(&full_prompt, model);
 
     let res: serde_json::Value = client
@@ -59,19 +74,19 @@ pub async fn infer_behavior(
     })?;
 
     serde_json::from_str(json_str)
-        .map_err(|e| UcpError::LlmInference(format!("Failed to parse LLM JSON: {}", e)))
+        .map_err(|e| UcpError::LlmInference(format!("Failed to parse LLM JSON: {e}")))
 }
 
 /// Build a component enrichment prompt for the LLM.
+#[must_use]
 pub fn build_enrichment_prompt(component_name: &str, code: &str) -> String {
     format!(
-        "Analyze this UI component named '{}' and return JSON with:\n\
+        "Analyze this UI component named '{component_name}' and return JSON with:\n\
          {{\n\
          \"description\": \"A one-sentence semantic description of what this component does\",\n\
          \"smdl\": \"SMDL state machine definition or empty string if none\",\n\
          \"keywords\": [\"list\", \"of\", \"semantic\", \"keywords\"]\n\
          }}\n\n\
-         Code:\n{}",
-        component_name, code
+         Code:\n{code}"
     )
 }

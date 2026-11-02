@@ -28,20 +28,81 @@ impl Default for TokenMergeOptions {
 /// Result of a token merge operation.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TokenMergeResult {
+    /// The merged token set (conflicting keys resolved per strategy).
     pub merged: DtcgTokens,
+    /// Conflicts detected during the merge, whether resolved or not.
     pub conflicts: Vec<TokenConflict>,
 }
 
 /// A token conflict: same key, different values from different sources.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TokenConflict {
+    /// Token key (CSS custom-property name).
     pub key: String,
-    pub values: Vec<(String, String)>,   // (source_file, value)
+    /// `(source_file, value)` pairs, one per disagreeing source.
+    pub values: Vec<(String, String)>,
+}
+
+/// Resolve one token category into a merged map, recording conflicts.
+///
+/// With `force` the strategy picks a winner; without it the conflict is
+/// recorded and the key is omitted from the merged map.
+// Helper to resolve conflicts for one category. Never errors: with
+// `force` the strategy picks a winner; without it the conflict is
+// recorded and the key is omitted from the merged map.
+fn resolve_category(
+    entries: HashMap<String, Vec<(usize, &str)>>,
+    files: &[(String, DtcgTokens)],
+    strategy: &str,
+    force: bool,
+    conflicts: &mut Vec<TokenConflict>,
+) -> HashMap<String, String> {
+    let mut merged = HashMap::new();
+
+    for (key, occurrences) in entries {
+        // Determine if there's a conflict (different values)
+        let values: Vec<&str> = occurrences.iter().map(|(_, v)| *v).collect();
+        let first_val = values[0];
+        let all_same = values.iter().all(|v| *v == first_val);
+
+        if all_same {
+            merged.insert(key, first_val.to_string());
+        } else {
+            // Conflict detected
+            let conflict = TokenConflict {
+                key: key.clone(),
+                values: occurrences
+                    .iter()
+                    .map(|(idx, val)| (files[*idx].0.clone(), val.to_string()))
+                    .collect(),
+            };
+
+            if force {
+                // Apply strategy
+                let chosen = match strategy {
+                    "last-wins" => occurrences.last().unwrap().1.to_string(),
+                    // "first-wins" and unknown strategies fall back to
+                    // the first occurrence.
+                    _ => occurrences[0].1.to_string(),
+                };
+                merged.insert(key, chosen);
+                conflicts.push(conflict); // Still record the conflict for reporting
+            } else {
+                conflicts.push(conflict);
+                // Don't stop; collect all conflicts first
+            }
+        }
+    }
+
+    merged
 }
 
 /// Merge multiple `DtcgTokens` into a single token set.
 ///
-/// Returns an error if conflicts are found and `options.force` is false.
+/// # Errors
+///
+/// Returns an error if conflicts are found and `options.force` is false,
+/// or when the merge strategy cannot be applied.
 pub fn merge_token_files(
     files: &[(String, DtcgTokens)],
     options: &TokenMergeOptions,
@@ -58,66 +119,35 @@ pub fn merge_token_files(
             spacing.entry(key.clone()).or_default().push((idx, value));
         }
         for (key, value) in &tokens.typography {
-            typography.entry(key.clone()).or_default().push((idx, value));
+            typography
+                .entry(key.clone())
+                .or_default()
+                .push((idx, value));
         }
     }
 
     let mut conflicts = Vec::new();
-    let mut merged_colors = HashMap::new();
-    let mut merged_spacing = HashMap::new();
-    let mut merged_typography = HashMap::new();
-
-    // Helper to resolve conflicts for one category
-    fn resolve_category(
-        entries: HashMap<String, Vec<(usize, &str)>>,
-        files: &[(String, DtcgTokens)],
-        strategy: &str,
-        force: bool,
-        conflicts: &mut Vec<TokenConflict>,
-    ) -> Result<HashMap<String, String>> {
-        let mut merged = HashMap::new();
-
-        for (key, occurrences) in entries {
-            // Determine if there's a conflict (different values)
-            let values: Vec<&str> = occurrences.iter().map(|(_, v)| *v).collect();
-            let first_val = values[0];
-            let all_same = values.iter().all(|v| *v == first_val);
-
-            if all_same {
-                merged.insert(key, first_val.to_string());
-            } else {
-                // Conflict detected
-                let conflict = TokenConflict {
-                    key: key.clone(),
-                    values: occurrences
-                        .iter()
-                        .map(|(idx, val)| (files[*idx].0.clone(), val.to_string()))
-                        .collect(),
-                };
-
-                if !force {
-                    conflicts.push(conflict);
-                    // Don't stop; collect all conflicts first
-                } else {
-                    // Apply strategy
-                    let chosen = match strategy {
-                        "first-wins" => occurrences[0].1.to_string(),
-                        "last-wins" => occurrences.last().unwrap().1.to_string(),
-                        // For "error" with force we still need a choice; fall back to first-wins
-                        _ => occurrences[0].1.to_string(),
-                    };
-                    merged.insert(key, chosen);
-                    conflicts.push(conflict); // Still record the conflict for reporting
-                }
-            }
-        }
-
-        Ok(merged)
-    }
-
-    merged_colors = resolve_category(colors, files, &options.strategy, options.force, &mut conflicts)?;
-    merged_spacing = resolve_category(spacing, files, &options.strategy, options.force, &mut conflicts)?;
-    merged_typography = resolve_category(typography, files, &options.strategy, options.force, &mut conflicts)?;
+    let merged_colors: HashMap<String, String> = resolve_category(
+        colors,
+        files,
+        &options.strategy,
+        options.force,
+        &mut conflicts,
+    );
+    let merged_spacing = resolve_category(
+        spacing,
+        files,
+        &options.strategy,
+        options.force,
+        &mut conflicts,
+    );
+    let merged_typography = resolve_category(
+        typography,
+        files,
+        &options.strategy,
+        options.force,
+        &mut conflicts,
+    );
 
     if !conflicts.is_empty() && !options.force {
         return Err(ucp_core::UcpError::Conflict(format!(
@@ -155,10 +185,8 @@ mod tests {
         let a = make_tokens("#ff0000");
         let b = make_tokens("#ff0000");
         let opts = TokenMergeOptions::default();
-        let result = merge_token_files(
-            &[("a.json".into(), a), ("b.json".into(), b)],
-            &opts,
-        ).unwrap();
+        let result =
+            merge_token_files(&[("a.json".into(), a), ("b.json".into(), b)], &opts).unwrap();
         assert_eq!(result.conflicts.len(), 0);
         assert_eq!(result.merged.colors.get("--primary").unwrap(), "#ff0000");
     }
@@ -168,10 +196,7 @@ mod tests {
         let a = make_tokens("#ff0000");
         let b = make_tokens("#0000ff");
         let opts = TokenMergeOptions::default(); // strategy = "error", force = false
-        let result = merge_token_files(
-            &[("a.json".into(), a), ("b.json".into(), b)],
-            &opts,
-        );
+        let result = merge_token_files(&[("a.json".into(), a), ("b.json".into(), b)], &opts);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("conflict"));
     }
@@ -184,10 +209,8 @@ mod tests {
             strategy: "first-wins".into(),
             force: true,
         };
-        let result = merge_token_files(
-            &[("a.json".into(), a), ("b.json".into(), b)],
-            &opts,
-        ).unwrap();
+        let result =
+            merge_token_files(&[("a.json".into(), a), ("b.json".into(), b)], &opts).unwrap();
         assert_eq!(result.merged.colors.get("--primary").unwrap(), "#ff0000");
         assert_eq!(result.conflicts.len(), 1);
     }
@@ -200,10 +223,8 @@ mod tests {
             strategy: "last-wins".into(),
             force: true,
         };
-        let result = merge_token_files(
-            &[("a.json".into(), a), ("b.json".into(), b)],
-            &opts,
-        ).unwrap();
+        let result =
+            merge_token_files(&[("a.json".into(), a), ("b.json".into(), b)], &opts).unwrap();
         assert_eq!(result.merged.colors.get("--primary").unwrap(), "#0000ff");
         assert_eq!(result.conflicts.len(), 1);
     }

@@ -8,11 +8,14 @@ license.workspace = true
 ucp-core = { path = "../ucp-core" }
 ucp-synthesizer = { path = "../ucp-synthesizer" }
 ucp-maintainer = { path = "../ucp-maintainer" }
-clap = { version = "4.5", features = ["derive"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-serde_json = "1.0"
-anyhow = "1.0"
-regex = "1.10"
+clap = { version = "4.6.7", features = ["derive"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
+serde_json = "1.0.145"
+anyhow = "1.0.104"
+regex = "1.13.1"
 
 [dev-dependencies]
-assert_cmd = "2.2.1"
+assert_cmd = "2.2.2"
+
+[lints]
+workspace = true

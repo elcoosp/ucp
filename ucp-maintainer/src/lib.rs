@@ -16,7 +16,7 @@
 pub mod curate;
 pub mod curate_tui;
 pub mod diff;
+pub mod registry;
 pub mod tokens;
 pub mod verify;
-pub mod registry;
 pub mod watch;

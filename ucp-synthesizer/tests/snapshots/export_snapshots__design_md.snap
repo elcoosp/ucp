@@ -1,6 +1,6 @@
 ---
 source: ucp-synthesizer/tests/export_snapshots.rs
-assertion_line: 46
+assertion_line: 91
 expression: content
 ---
 ---
@@ -10,7 +10,7 @@ description: Design system for test-lib
 
 # test-lib v1.0.0
 
-This is an AI‑native design specification for the `{}` component library. It describes the design tokens, component props, variants, and state machines in a format optimised for AI coding agents.
+This is an AI-native design specification for the `{}` component library. It describes the design tokens, component props, variants, and state machines in a format optimised for AI coding agents.
 
 ## Components
 

@@ -1,6 +1,11 @@
 use super::rust_ast::{RawComponentExtraction, RawPropExtraction};
 use ucp_core::Result;
 
+/// Extract raw components from a Vue SFC source file.
+///
+/// # Errors
+///
+/// Errors on malformed `defineProps` blocks.
 pub fn extract_vue_components(source: &str) -> Result<Vec<RawComponentExtraction>> {
     let mut components = Vec::new();
     // Look for <script setup lang="ts"> blocks
@@ -71,7 +76,7 @@ fn extract_vue_component_name(source: &str) -> Option<String> {
         .lines()
         .next()
         .and_then(|l| l.split_whitespace().next())
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
 }
 
 #[cfg(test)]

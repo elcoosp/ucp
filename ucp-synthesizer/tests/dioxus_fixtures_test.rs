@@ -1,3 +1,4 @@
+//! Pipeline tests over the Dioxus fixture library in `tests/fixtures`.
 use ucp_core::cam::AbstractPropType;
 use ucp_synthesizer::pipeline::{self, PipelineOptions};
 

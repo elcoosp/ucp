@@ -1,3 +1,4 @@
+//! Tests for applying curation decisions to synthesized specs.
 use ucp_core::cam::{Conflict, ResolutionStrategy};
 use ucp_synthesizer::curation::generate_curation_html;
 

@@ -1,3 +1,4 @@
+//! Unit tests for the raw-type -> CAM type ontology.
 use ucp_core::cam::AbstractPropType;
 use ucp_synthesizer::unify::map_raw_type_to_cam;
 

@@ -1,6 +1,7 @@
-use ucp_maintainer::curate::{curate_spec, count_unresolved_conflicts};
+//! Integration tests for the curation decision workflow.
 use ucp_core::cam::*;
-use ucp_synthesizer::pipeline::{SynthesisOutput, PipelineStats};
+use ucp_maintainer::curate::{count_unresolved_conflicts, curate_spec};
+use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
 fn make_conflict_spec() -> SynthesisOutput {
     let conflict_id = "conf_001".to_string();
@@ -36,8 +37,11 @@ fn make_conflict_spec() -> SynthesisOutput {
             consumed_contexts: vec![],
         }],
         stats: PipelineStats {
-            files_scanned: 0, files_parsed: 0, components_found: 0,
-            conflicts_detected: 0, llm_enriched: false,
+            files_scanned: 0,
+            files_parsed: 0,
+            components_found: 0,
+            conflicts_detected: 0,
+            llm_enriched: false,
         },
         provenance: None,
         curation_log: None,

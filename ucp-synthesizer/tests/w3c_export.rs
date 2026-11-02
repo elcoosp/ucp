@@ -1,13 +1,12 @@
+//! Tests for the W3C design-components mapping exporter.
 use std::fs;
 use tempfile::TempDir;
 use ucp_core::cam::*;
 use ucp_synthesizer::export::w3c::export_w3c;
 use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
-#[test]
-fn export_full_w3c_with_anatomy_states_variants() {
-    let tmp = TempDir::new().unwrap();
-
+/// Build the rich accordion fixture used by the W3C export test.
+fn accordion_output() -> SynthesisOutput {
     let comp = CanonicalAbstractComponent {
         id: "rust:accordion.rs:Accordion".to_string(),
         semantic_fingerprint: SemanticFingerprint {
@@ -90,7 +89,7 @@ fn export_full_w3c_with_anatomy_states_variants() {
         consumed_contexts: vec![],
     };
 
-    let output = SynthesisOutput {
+    SynthesisOutput {
         ucp_version: "4.0.0".into(),
         components: vec![comp],
         provenance: None,
@@ -102,8 +101,13 @@ fn export_full_w3c_with_anatomy_states_variants() {
             conflicts_detected: 0,
             llm_enriched: false,
         },
-    };
+    }
+}
 
+#[test]
+fn export_full_w3c_with_anatomy_states_variants() {
+    let tmp = TempDir::new().unwrap();
+    let output = accordion_output();
     export_w3c(&output, &tmp.path().to_string_lossy()).unwrap();
     let content = fs::read_to_string(tmp.path().join("ucp-spec.w3c.json")).unwrap();
 

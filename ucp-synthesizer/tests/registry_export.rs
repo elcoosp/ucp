@@ -1,3 +1,4 @@
+//! Tests for the in-memory component registry exporter.
 use std::fs;
 use tempfile::TempDir;
 use ucp_core::cam::*;

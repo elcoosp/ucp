@@ -1,3 +1,4 @@
+//! Backward-compatibility tests against v0.3.0 spec fixtures.
 use tempfile::TempDir;
 use ucp_core::cam::*;
 use ucp_synthesizer::export::w3c::export_w3c;

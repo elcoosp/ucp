@@ -1,3 +1,4 @@
+//! Tests for LLM prompt building and response parsing (mocked HTTP).
 use ucp_synthesizer::llm::build_ollama_payload;
 
 #[test]
