@@ -1,8 +1,17 @@
 use crate::pipeline::SynthesisOutput;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 use ucp_core::Result;
 
+/// Write a Markdown-formatted `llms.txt` summary of the spec.
+///
+/// The output lists every component with its props and events in a
+/// compact, LLM-friendly form.
+///
+/// # Errors
+///
+/// Errors on file-create or file-write failures.
 pub fn export_llms_txt(spec: &SynthesisOutput, output_dir: &str) -> Result<()> {
     let dir = Path::new(output_dir);
     fs::create_dir_all(dir).map_err(ucp_core::UcpError::Io)?;
@@ -12,8 +21,8 @@ pub fn export_llms_txt(spec: &SynthesisOutput, output_dir: &str) -> Result<()> {
 
     for comp in &spec.components {
         let name = comp.id.rsplit(':').next().unwrap_or("");
-        txt.push_str(&format!("## {}\n\n", name));
-        txt.push_str(&format!("- **Description:** {} component\n", name));
+        let _ = writeln!(txt, "## {name}\n");
+        let _ = writeln!(txt, "- **Description:** {name} component");
         if !comp.props.is_empty() {
             txt.push_str("- **Props:**\n");
             for p in &comp.props {
@@ -21,18 +30,18 @@ pub fn export_llms_txt(spec: &SynthesisOutput, output_dir: &str) -> Result<()> {
                     .concrete_type
                     .clone()
                     .unwrap_or_else(|| format!("{:?}", p.abstract_type));
-                let r = if p.reactivity != ucp_core::cam::AbstractReactivity::Static {
-                    "required"
-                } else {
+                let r = if p.reactivity == ucp_core::cam::AbstractReactivity::Static {
                     "optional"
+                } else {
+                    "required"
                 };
-                txt.push_str(&format!("  - `{}` ({}, {})\n", p.canonical_name, t, r));
+                let _ = writeln!(txt, "  - `{}` ({t}, {r})", p.canonical_name);
             }
         }
         if !comp.events.is_empty() {
             txt.push_str("- **Events:**\n");
             for e in &comp.events {
-                txt.push_str(&format!("  - `{}`\n", e.canonical_name));
+                let _ = writeln!(txt, "  - `{}`", e.canonical_name);
             }
         }
         txt.push('\n');
