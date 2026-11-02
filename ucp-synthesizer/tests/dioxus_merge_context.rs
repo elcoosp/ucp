@@ -1,10 +1,10 @@
-use ucp_synthesizer::merge::MergeOptions;
+//! Tests that provided/consumed Dioxus contexts survive merging.
 use ucp_core::cam::*;
 use ucp_synthesizer::merge::merge_specs;
+use ucp_synthesizer::merge::MergeOptions;
 use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
 #[test]
-#[ignore]
 fn dioxus_context_survives_merge_direct() {
     // Build two components manually: one provider, one consumer.
     let provider = CanonicalAbstractComponent {
@@ -89,7 +89,7 @@ fn dioxus_context_survives_merge_direct() {
         .find(|c| c.id.contains("Dialog"))
         .expect("Dialog component should exist");
     assert_eq!(prov.provided_context.as_deref(), Some("DialogContext"));
-    assert!(prov.consumed_contexts.is_empty());
+    assert_eq!(prov.consumed_contexts, [] as [std::string::String; 0]);
 
     let cons = merged
         .components
