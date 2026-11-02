@@ -14,6 +14,7 @@ pest_derive = "2.9.5"
 
 [dev-dependencies]
 insta = { version = "1.49.0", features = ["json"] }
+proptest = "1.12.0"
 
 [lints]
 workspace = true
