@@ -29,4 +29,5 @@ node_modules/
 .env.local
 
 wr.sh
+.patch-ts
 docs/book/*
