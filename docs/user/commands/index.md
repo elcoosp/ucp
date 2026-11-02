@@ -15,6 +15,3 @@
 | `components` | List/inspect components |
 | `export` | Export to a single format |
 | `import` | Import from external formats |
-| `dashboard` | Generate HTML dashboard |
-| `contract` | Export AI contract |
-| `mcp` | Run MCP server |
