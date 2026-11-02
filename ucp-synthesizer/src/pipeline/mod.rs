@@ -1,7 +1,14 @@
+//! End-to-end synthesis pipeline: walk, parse, unify, enrich, report.
+
+/// Fingerprint-based conflict detection.
 pub mod conflicts;
+/// Optional LLM enrichment stage.
 pub mod enrichment;
+/// Directory walk + parallel parse + unify driver.
 pub mod extraction;
+/// Output/stats/options types.
 pub mod output;
+/// Raw-extraction -> CAM unification.
 pub mod unification;
 
 pub use extraction::run_pipeline;
