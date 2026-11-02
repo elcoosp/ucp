@@ -1,3 +1,4 @@
+//! Integration tests for `PackageManifest` parsing and validation.
 use ucp_core::cam::*;
 
 #[test]
