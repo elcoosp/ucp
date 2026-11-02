@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3534b3979541fa761f67035b05b9126126191605c2436e8b2e77365936098880 # shrinks to members = [("a", "(e: React.MouseEvent) => void"), ("a", "boolean")]
