@@ -110,7 +110,7 @@ fn full_v030_registry_and_w3c() {
             files_parsed: 0,
             components_found: 1,
             conflicts_detected: 0,
-            llm_enriched: false,
+            cache_hits: 0,
         },
     };
     export_w3c(&output, &tmp.path().join("w3c").to_string_lossy()).unwrap();
