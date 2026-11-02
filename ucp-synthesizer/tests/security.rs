@@ -1,3 +1,4 @@
+//! Tests for SPDX license checks and path-safety guards.
 use ucp_synthesizer::security::{check_spdx_compliance, is_path_safe_to_parse};
 
 #[test]
