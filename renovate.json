@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "schedule": ["before 6am on monday"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "Group all patch/minor dev-dep bumps into one PR",
+      "matchUpdateTypes": ["patch", "minor"],
+      "matchDepTypes": ["devDependencies", "dev"],
+      "groupName": "dev dependencies (patch/minor)"
+    },
+    {
+      "description": "Major bumps get individual PRs with changelog-friendly commits",
+      "matchUpdateTypes": ["major"],
+      "commitMessagePrefix": "chore(deps)!"
+    }
+  ]
+}
