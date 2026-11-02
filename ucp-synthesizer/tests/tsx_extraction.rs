@@ -79,9 +79,10 @@ export const Table = (props: TableProps) => {
 
     let data = &table.props[0];
     assert_eq!(data.name, "data");
+    // 0.13 convention: type text is whitespace-stripped outside literals.
     assert!(data.raw_type.contains("Array<{"));
-    assert!(data.raw_type.contains("id: string"));
-    assert!(data.raw_type.contains("label: string"));
+    assert!(data.raw_type.contains("id:string"));
+    assert!(data.raw_type.contains("label:string"));
 }
 
 #[test]
@@ -141,8 +142,8 @@ export const Config = (props: ConfigProps) => null;
     let theme = &components[0].props[0];
     assert_eq!(theme.name, "theme");
     assert!(!theme.is_optional);
-    assert!(theme.raw_type.contains("primary: string"));
-    assert!(theme.raw_type.contains("secondary: string"));
+    assert!(theme.raw_type.contains("primary:string"));
+    assert!(theme.raw_type.contains("secondary:string"));
 }
 
 #[test]
@@ -232,8 +233,9 @@ export const MapView = (props: MapProps) => null;
 
     let data = &components[0].props[0];
     assert_eq!(data.name, "data");
-    // The comma inside Record<string, number> must not split the prop
-    assert_eq!(data.raw_type, "Record<string, number>");
+    // The comma inside Record<string, number> must not split the prop.
+    // 0.13 convention: type text is whitespace-stripped outside literals.
+    assert_eq!(data.raw_type, "Record<string,number>");
 }
 
 #[test]
