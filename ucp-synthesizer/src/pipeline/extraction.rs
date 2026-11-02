@@ -1,13 +1,12 @@
 //! The extraction pipeline: scan a source directory, parse every eligible
 //! file in parallel, and unify all findings into CAM components.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 
 use super::conflicts::attach_conflicts;
-use super::enrichment::enrich_components_with_llm;
 use super::output::{PipelineOptions, PipelineStats, SynthesisOutput};
 use super::unification::{unify_rust_component, unify_rust_component_struct, unify_tsx_component};
 use crate::extract::rust_ast::{self, RawComponentExtraction};
@@ -20,19 +19,13 @@ use ucp_core::Result;
 ///
 /// # Errors
 ///
-/// Returns I/O errors when the source directory cannot be read and
-/// propagation errors from LLM enrichment when enabled.
+/// Returns I/O errors when the source directory cannot be read.
 pub async fn run_pipeline(source_dir: &str) -> Result<SynthesisOutput> {
     run_pipeline_with_options(source_dir, &PipelineOptions::default()).await
 }
 
 /// One parsed file: path, raw source text, and raw extractions.
-type ParsedFile = (
-    String,
-    String,
-    Vec<RawComponentExtraction>,
-    Vec<RawTsxExtraction>,
-);
+type ParsedFile = (String, Vec<RawComponentExtraction>, Vec<RawTsxExtraction>);
 
 /// Read and parse one file on the rayon pool; per-file errors warn only.
 fn parse_one_file(path: &Path) -> ParsedFile {
@@ -55,11 +48,11 @@ fn parse_one_file(path: &Path) -> ParsedFile {
                 ),
                 _ => (Vec::new(), Vec::new()),
             };
-            (path_str, content, rust, tsx)
+            (path_str, rust, tsx)
         }
         Err(e) => {
             eprintln!("  ⚠ Skipping {}: {e}", path.display());
-            (path_str, String::new(), Vec::new(), Vec::new())
+            (path_str, Vec::new(), Vec::new())
         }
     }
 }
@@ -68,28 +61,22 @@ fn parse_one_file(path: &Path) -> ParsedFile {
 struct ReducedFiles {
     rust_extractions: BTreeMap<String, Vec<RawComponentExtraction>>,
     tsx_extractions: BTreeMap<String, Vec<RawTsxExtraction>>,
-    source_map: HashMap<String, String>,
     files_parsed: usize,
 }
 
-fn reduce_parsed_files(mut parsed: Vec<ParsedFile>, keep_sources: bool) -> ReducedFiles {
+fn reduce_parsed_files(mut parsed: Vec<ParsedFile>) -> ReducedFiles {
     parsed.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut reduced = ReducedFiles {
         rust_extractions: BTreeMap::new(),
         tsx_extractions: BTreeMap::new(),
-        source_map: HashMap::new(),
         files_parsed: 0,
     };
 
-    for (path_str, content, rust, tsx) in parsed {
+    for (path_str, rust, tsx) in parsed {
         let parsed_file = !rust.is_empty() || !tsx.is_empty();
         if parsed_file {
             reduced.files_parsed += 1;
-            if keep_sources {
-                // Only retain file contents when LLM enrichment needs them.
-                reduced.source_map.insert(path_str.clone(), content);
-            }
         }
         if !rust.is_empty() {
             reduced.rust_extractions.insert(path_str.clone(), rust);
@@ -109,8 +96,7 @@ fn reduce_parsed_files(mut parsed: Vec<ParsedFile>, keep_sources: bool) -> Reduc
 ///
 /// # Errors
 ///
-/// Returns I/O errors when files cannot be read, and errors from LLM
-/// enrichment when enabled.
+/// Returns I/O errors when the source directory cannot be read.
 pub async fn run_pipeline_with_options(
     source_dir: &str,
     opts: &PipelineOptions,
@@ -124,13 +110,46 @@ pub async fn run_pipeline_with_options(
         Ok(())
     })?;
 
-    // 2. Read + parse in parallel; per-file errors are warnings, not fatal.
-    let keep_sources = opts.ollama_url.is_some() && !opts.dry_run;
-    let parsed: Vec<ParsedFile> = eligible
+    // 2. Parse: files whose (mtime, size) still match the incremental cache
+    //    are served from disk; only the rest hit the parallel parser.
+    let mut cache = opts
+        .cache_path
+        .as_deref()
+        .map(super::cache::ParseCache::open);
+    let mut cache_hits = 0usize;
+    let mut to_parse: Vec<PathBuf> = Vec::new();
+    let mut served: Vec<ParsedFile> = Vec::new();
+    for path in &eligible {
+        let cached = cache.as_mut().and_then(|c| {
+            super::cache::stat_file(path).and_then(|(mtime, size)| {
+                c.get(path, mtime, size)
+                    .map(|(rust, tsx)| (c, mtime, size, rust, tsx))
+            })
+        });
+        match cached {
+            Some((_, _, _, rust, tsx)) => {
+                cache_hits += 1;
+                served.push((path.to_string_lossy().to_string(), rust, tsx));
+            }
+            None => to_parse.push(path.clone()),
+        }
+    }
+    let parsed: Vec<ParsedFile> = to_parse
         .par_iter()
         .map(|p| parse_one_file(p.as_path()))
         .collect();
-    let reduced = reduce_parsed_files(parsed, keep_sources);
+    if let Some(c) = cache.as_mut() {
+        for (path_str, rust, tsx) in &parsed {
+            if let Some((mtime, size)) = super::cache::stat_file(Path::new(path_str)) {
+                c.insert(Path::new(path_str), mtime, size, rust.clone(), tsx.clone());
+            }
+        }
+        c.save();
+    }
+
+    let mut all_parsed = served;
+    all_parsed.extend(parsed);
+    let reduced = reduce_parsed_files(all_parsed);
     let files_parsed = reduced.files_parsed;
     let files_scanned = eligible.len();
 
@@ -152,23 +171,7 @@ pub async fn run_pipeline_with_options(
         }
     }
 
-    // 5. Optional LLM enrichment.
-    let mut llm_enriched = false;
-    if let Some(ollama_url) = &opts.ollama_url {
-        if opts.dry_run {
-            println!("   ℹ️ Dry run mode, skipping LLM enrichment");
-        } else {
-            llm_enriched = enrich_components_with_llm(
-                all_components.as_mut(),
-                &reduced.source_map,
-                ollama_url,
-                &opts.llm_model,
-            )
-            .await?;
-        }
-    }
-
-    // 6. Conflict detection + deterministic ordering.
+    // 5. Conflict detection + deterministic ordering.
     attach_conflicts(&mut all_components);
     all_components.sort_by(|a, b| a.id.cmp(&b.id));
     let conflicts_detected = super::conflicts::count_conflicts(&all_components);
@@ -194,7 +197,7 @@ pub async fn run_pipeline_with_options(
             files_parsed,
             components_found,
             conflicts_detected,
-            llm_enriched,
+            cache_hits,
         },
     })
 }
