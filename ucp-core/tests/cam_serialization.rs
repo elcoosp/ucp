@@ -1,3 +1,4 @@
+//! Integration tests for CAM type JSON serialization round-trips.
 use insta::assert_json_snapshot;
 use ucp_core::cam::*;
 
@@ -46,7 +47,10 @@ fn make_full_component() -> CanonicalAbstractComponent {
             initial: "idle".into(),
             states: [("idle".into(), StateNode { on: None })].into(),
         }),
-        extracted_parts: vec![ExtractedPart { name: "trigger".into(), selectable: true }],
+        extracted_parts: vec![ExtractedPart {
+            name: "trigger".into(),
+            selectable: true,
+        }],
         source_repos: vec![SourceAttribution {
             repo_url: "local".into(),
             file_path: "button.rs".into(),
