@@ -22,13 +22,16 @@ struct ConflictRow {
 /// Generate a static 3-column HTML page for human conflict curation.
 ///
 /// - `conflicts`: list of detected CAM conflicts
-/// - `source_a_code`: raw source text from the first codebase
-/// - `source_b_code`: raw source text from the second codebase
+/// - `base_code`: raw source text from the base codebase
+/// - `other_code`: raw source text from the other codebase
 /// - `proposed_canon_json`: the proposed unified UCP spec as JSON
+/// # Errors
+///
+/// Errors when the HTML template cannot be rendered or written.
 pub fn generate_curation_html(
     conflicts: &[Conflict],
-    source_a_code: &str,
-    source_b_code: &str,
+    base_code: &str,
+    other_code: &str,
     proposed_canon_json: &str,
 ) -> Result<String> {
     let rows: Vec<ConflictRow> = conflicts
@@ -44,13 +47,13 @@ pub fn generate_curation_html(
         .collect();
 
     let html = CurationHtml {
-        source_a: source_a_code.to_string(),
-        source_b: source_b_code.to_string(),
+        source_a: base_code.to_string(),
+        source_b: other_code.to_string(),
         conflicts: rows,
     };
 
     html.render()
-        .map_err(|e| ucp_core::UcpError::Parsing(format!("Askama template error: {}", e)))
+        .map_err(|e| ucp_core::UcpError::Parsing(format!("Askama template error: {e}")))
 }
 
 #[cfg(test)]
