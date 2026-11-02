@@ -68,29 +68,18 @@ pub struct PipelineStats {
     pub components_found: usize,
     /// Conflict attachments detected.
     pub conflicts_detected: usize,
-    /// Whether any component was enriched by an LLM.
-    pub llm_enriched: bool,
+    /// Files served from the incremental parse cache instead of being
+    /// re-parsed (0.13.0). Defaults to 0 when loading older specs.
+    #[serde(default)]
+    pub cache_hits: usize,
 }
 
 /// Configuration for the extraction pipeline.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PipelineOptions {
-    /// Ollama base URL; `None` disables LLM enrichment.
-    pub ollama_url: Option<String>,
-    /// Model identifier used for enrichment prompts.
-    pub llm_model: String,
-    /// Skip LLM enrichment even when `ollama_url` is set.
-    pub dry_run: bool,
-}
-
-impl Default for PipelineOptions {
-    fn default() -> Self {
-        Self {
-            ollama_url: None,
-            llm_model: "glm-5:cloud".to_string(),
-            dry_run: false,
-        }
-    }
+    /// Serve unchanged files from the incremental parse cache at this path
+    /// instead of re-parsing them (0.13.0). `None` parses everything.
+    pub cache_path: Option<std::path::PathBuf>,
 }
 
 impl SynthesisOutput {
@@ -157,7 +146,6 @@ mod tests {
     fn stats_default_is_zeroed() {
         let stats = PipelineStats::default();
         assert_eq!(stats.files_scanned, 0);
-        assert!(!stats.llm_enriched);
     }
 
     #[test]
