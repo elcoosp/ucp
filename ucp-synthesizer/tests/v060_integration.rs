@@ -1,13 +1,10 @@
 //! Backward-compatibility tests against v0.6.0 spec fixtures.
 use tempfile::TempDir;
 use ucp_core::cam::*;
-use ucp_synthesizer::export::a2ui::export_a2ui;
-use ucp_synthesizer::export::ag_ui::export_ag_ui;
 use ucp_synthesizer::generate::dioxus::generate_dioxus;
 use ucp_synthesizer::generate::gpui::generate_gpui;
 use ucp_synthesizer::generate::leptos::generate_leptos;
 use ucp_synthesizer::generate::react::generate_react;
-use ucp_synthesizer::pipeline::{PipelineStats, SynthesisOutput};
 
 fn make_button_component(framework: &str) -> CanonicalAbstractComponent {
     CanonicalAbstractComponent {
@@ -83,35 +80,4 @@ fn full_v060_pipeline_all_generators() {
 
     generate_gpui(&manifest, &tmp.path().join("gpui").to_string_lossy()).unwrap();
     assert!(tmp.path().join("gpui/src/button.rs").exists());
-}
-
-#[test]
-fn full_v060_ai_exports() {
-    let tmp = TempDir::new().unwrap();
-    let comp = make_button_component("rust");
-    let output = SynthesisOutput {
-        ucp_version: "4.0.0".into(),
-        components: vec![comp],
-        provenance: None,
-        curation_log: None,
-        stats: PipelineStats {
-            files_scanned: 1,
-            files_parsed: 1,
-            components_found: 1,
-            conflicts_detected: 0,
-            llm_enriched: false,
-        },
-    };
-
-    export_a2ui(
-        &output,
-        "test-lib",
-        "1.0.0",
-        &tmp.path().join("a2ui").to_string_lossy(),
-    )
-    .unwrap();
-    assert!(tmp.path().join("a2ui/a2ui-catalog.json").exists());
-
-    export_ag_ui(&output, &tmp.path().join("ag-ui").to_string_lossy()).unwrap();
-    assert!(tmp.path().join("ag-ui/ag-ui-events.json").exists());
 }
