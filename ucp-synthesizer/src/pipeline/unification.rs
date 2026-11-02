@@ -203,7 +203,10 @@ fn build_component(
         id: format!("{}:{}:{}", shape.id_prefix, file_path, name),
         semantic_fingerprint: SemanticFingerprint {
             purpose_hash: compute_purpose_hash(name, &props),
-            normalized_prop_names: props.iter().map(|p| p.canonical_name.clone()).collect(),
+            normalized_prop_names: props
+                .iter()
+                .map(|p| ucp_core::naming::normalize_prop_name(&p.canonical_name))
+                .collect(),
         },
         props,
         events,
@@ -265,31 +268,16 @@ pub fn extract_events_from_props(props: &[CanonicalAbstractProp]) -> Vec<Canonic
             let AbstractPropType::AsyncEventHandler(payload_types) = &p.abstract_type else {
                 return None;
             };
-            let stripped = p
-                .canonical_name
-                .strip_prefix("on_")
-                .or_else(|| p.canonical_name.strip_prefix("on"))
-                .unwrap_or(&p.canonical_name);
-            let event_name = if stripped.is_empty() {
-                p.canonical_name.clone()
-            } else {
-                lower_first(stripped)
-            };
+            let event_name = ucp_core::naming::normalize_event_name(&p.canonical_name);
+            if event_name.is_empty() {
+                return None;
+            }
             Some(CanonicalAbstractEvent {
                 canonical_name: event_name,
                 abstract_payload: AbstractPropType::AsyncEventHandler(payload_types.clone()),
             })
         })
         .collect()
-}
-
-/// Lowercase the first character of `s` (used to normalize event names).
-fn lower_first(s: &str) -> String {
-    let mut chars = s.chars();
-    match chars.next() {
-        Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
-    }
 }
 
 /// Every renderable prop doubles as a selectable part of the component.
@@ -305,19 +293,19 @@ pub fn populate_extracted_parts(props: &[CanonicalAbstractProp]) -> Vec<Extracte
         .collect()
 }
 
-/// Stable, order-independent semantic fingerprint: FNV-1a over the
-/// lower-cased component name and its sorted prop names.
+/// Stable cross-framework semantic fingerprint: FNV-1a over the normalized
+/// component name (case-folded via
+/// [`ucp_core::naming::normalize_component_name`]).
+///
+/// Prop sets are deliberately excluded: framework ports of one component
+/// legitimately declare different prop sets, and those differences are the
+/// drift UCP exists to report. Grouping is therefore name-driven; the
+/// differences surface as conflicts on the merged component.
 #[must_use]
 pub fn compute_purpose_hash(name: &str, props: &[CanonicalAbstractProp]) -> String {
-    let mut bytes = Vec::with_capacity(64);
-    bytes.extend_from_slice(name.to_lowercase().as_bytes());
-    let mut prop_names: Vec<&str> = props.iter().map(|p| p.canonical_name.as_str()).collect();
-    prop_names.sort_unstable();
-    for pn in &prop_names {
-        bytes.push(0x1f); // unit separator between name parts
-        bytes.extend_from_slice(pn.as_bytes());
-    }
-    format!("{:016x}", ucp_core::fnv1a64(&bytes))
+    let _ = props; // retained in the signature for extractor call-site stability
+    let bytes = ucp_core::naming::normalize_component_name(name);
+    format!("{:016x}", ucp_core::fnv1a64(bytes.as_bytes()))
 }
 
 #[cfg(test)]
@@ -360,15 +348,16 @@ mod tests {
     }
 
     #[test]
-    fn purpose_hash_is_order_independent() {
+    fn purpose_hash_clusters_across_frameworks() {
+        // The hash is over the NORMALIZED component name only: prop sets
+        // legitimately differ across framework ports (that difference is
+        // drift to report, not a reason to refuse unification).
         let a = vec![
             make_test_prop("alpha", AbstractPropType::ControlFlag),
             make_test_prop("beta", AbstractPropType::ControlFlag),
         ];
-        let b = vec![
-            make_test_prop("beta", AbstractPropType::ControlFlag),
-            make_test_prop("alpha", AbstractPropType::ControlFlag),
-        ];
+        let b = vec![make_test_prop("gamma", AbstractPropType::Any)];
+        // Prop-set independent.
         assert_eq!(
             compute_purpose_hash("Button", &a),
             compute_purpose_hash("Button", &b)
@@ -382,6 +371,18 @@ mod tests {
             compute_purpose_hash("Button", &a),
             compute_purpose_hash("Card", &a)
         );
+    }
+
+    #[test]
+    fn events_normalize_convention_bridges() {
+        let props = vec![
+            make_test_prop("on_click", AbstractPropType::AsyncEventHandler(vec![])),
+            make_test_prop("onOpenChange", AbstractPropType::AsyncEventHandler(vec![])),
+            make_test_prop("disabled", AbstractPropType::ControlFlag),
+        ];
+        let events = extract_events_from_props(&props);
+        let names: Vec<_> = events.iter().map(|e| e.canonical_name.clone()).collect();
+        assert_eq!(names, vec!["click", "openchange"]);
     }
 
     #[test]
