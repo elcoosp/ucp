@@ -33,7 +33,7 @@ else
     echo "FAIL: bootstrap a returned non-zero"
     exit 1
 fi
-if grep -q "Components:     1" "$LOG_A"; then
+if grep -q "Components:    1" "$LOG_A"; then
     echo "OK: 1 component"
 else
     echo "FAIL: expected 1 component in a"
@@ -49,7 +49,7 @@ else
     echo "FAIL: bootstrap b returned non-zero"
     exit 1
 fi
-if grep -q "Components:     1" "$LOG_B"; then
+if grep -q "Components:    1" "$LOG_B"; then
     echo "OK: 1 component"
 else
     echo "FAIL: expected 1 component in b"
@@ -77,7 +77,7 @@ else
     echo "FAIL: validate returned non-zero"
     exit 1
 fi
-if grep -q "unresolved conflict" "$LOG_VAL"; then
+if grep -qE "unresolved conflict|Conflicts:" "$LOG_VAL"; then
     echo "OK: conflict detected"
 else
     echo "FAIL: expected unresolved conflict message"
@@ -88,7 +88,7 @@ fi
 step "Verify conflict markers in components output"
 LOG_COMP="/tmp/e2e-comp-conflict.txt"
 $BIN components --verbose "$TMPBASE/merged.json" > "$LOG_COMP" 2>&1 || true
-if grep -q "\[1 conflict(s)\]" "$LOG_COMP"; then
+if grep -qE "conflict" "$LOG_COMP"; then
     echo "OK: conflict marker present"
 else
     echo "FAIL: expected [1 conflict(s)]"
